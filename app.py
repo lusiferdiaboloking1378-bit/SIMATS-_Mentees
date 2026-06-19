@@ -562,4 +562,8 @@ def delete_all_reports():
     return redirect(url_for('faculty_dashboard'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    with app.app_context():
+        db.create_all()
+        seed_db()
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
