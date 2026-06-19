@@ -1,0 +1,204 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@300;400;600;800&display=swap');
+
+:root {
+    --primary: #5e17eb;
+    /* Purple gradient start */
+    --secondary: #2d6cdf;
+    /* Blue accent */
+    --bg-dark: #0a0c10;
+    --sidebar-bg: #11141b;
+    --card-bg: rgba(22, 27, 34, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --text-muted: #8b949e;
+}
+
+body {
+    background: var(--bg-dark);
+    color: #c9d1d9;
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    overflow-x: hidden;
+    min-height: 100vh;
+}
+
+.font-outfit {
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Sidebar Layout */
+.app-container {
+    display: flex;
+    min-height: 100vh;
+    position: relative;
+}
+
+.sidebar {
+    width: 280px;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--glass-border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px 20px;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    box-sizing: border-box;
+}
+
+.sidebar.icon-sidebar {
+    width: 96px;
+    padding: 16px 10px;
+    align-items: center;
+}
+
+.main-content {
+    flex: 1;
+    margin-left: 280px;
+    padding: 40px 48px 48px;
+    box-sizing: border-box;
+    width: calc(100% - 280px);
+}
+
+.main-content.icon-main {
+    margin-left: 96px;
+    padding: 32px 48px 48px;
+    width: calc(100% - 96px);
+}
+
+/* Glass & Cards */
+.glass {
+    background: var(--card-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.glass-pill {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 9999px;
+    padding: 2px 12px;
+}
+
+/* Inputs */
+.premium-input {
+    background: rgba(13, 17, 23, 0.8);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    color: white;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.premium-input:focus {
+    outline: none;
+    border-color: var(--secondary);
+    box-shadow: 0 0 0 2px rgba(45, 108, 223, 0.2);
+}
+
+/* Buttons */
+.btn-primary {
+    background: linear-gradient(135deg, #7b3fe4, #5044e5);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* Sidebar Menu */
+.menu-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 12px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    margin-bottom: 4px;
+}
+
+.menu-item.active {
+    background: #232a35;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.menu-item:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.03);
+    color: white;
+}
+
+/* Login Layout */
+.login-page {
+    background: url('/static/background.mp4') center/cover no-repeat;
+    /* Video fallback box */
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-card {
+    width: min(420px, 92vw);
+    background: rgba(13, 17, 23, 0.7);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 40px;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+/* Table */
+table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+th {
+    background: rgba(255, 255, 255, 0.02);
+    padding: 16px 18px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--glass-border);
+    text-align: left;
+}
+
+td {
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    vertical-align: middle;
+}
+
+/* Timeline */
+.timeline-item {
+    padding-left: 20px;
+    border-left: 2px solid var(--glass-border);
+    position: relative;
+    padding-bottom: 20px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -7px;
+    top: 5px;
+    width: 12px;
+    height: 12px;
+    background: var(--secondary);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--secondary);
+}
