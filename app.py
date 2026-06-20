@@ -4,6 +4,9 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
@@ -55,6 +58,21 @@ class StudentDetail(db.Model):
         except: return []
 
 # Helper functions
+def delete_photo(photo_path):
+    if not photo_path:
+        return
+    if 'cloudinary.com' in photo_path:
+        try:
+            public_id = "simats_profiles/" + photo_path.split('/')[-1].split('.')[0]
+            cloudinary.uploader.destroy(public_id)
+        except Exception as e:
+            print(f'Failed to delete from Cloudinary: {e}')
+    elif os.path.exists(photo_path):
+        try:
+            os.unlink(photo_path)
+        except Exception as e:
+            print(f'Failed to delete local photo: {e}')
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -199,10 +217,14 @@ def student_dashboard():
 
         file = request.files.get('photo')
         if file and file.filename and allowed_file(file.filename):
-            filename = secure_filename(f"{session['user']}_{file.filename}")
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            student.photo_path = filepath
+            if os.environ.get('CLOUDINARY_URL'):
+                upload_result = cloudinary.uploader.upload(file, folder="simats_profiles")
+                student.photo_path = upload_result.get('secure_url')
+            else:
+                filename = secure_filename(f"{session['user']}_{file.filename}")
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                student.photo_path = filepath
 
         db.session.commit()
         flash('Details updated successfully!', 'success')
@@ -499,11 +521,7 @@ def clear_student(reg_num):
         student.online_course = None
         student.event_participation = None
         student.additional_description = None
-        if student.photo_path and os.path.exists(student.photo_path):
-            try:
-                os.unlink(student.photo_path)
-            except Exception as e:
-                print(f'Failed to delete photo: {e}')
+        delete_photo(student.photo_path)
         student.photo_path = None
         db.session.commit()
         flash(f'Report data for {student.name or reg_num} has been cleared.', 'success')
@@ -519,12 +537,7 @@ def remove_student(reg_num):
     
     student = StudentDetail.query.get(reg_num)
     if student:
-        # Delete uploaded photo file if exists
-        if student.photo_path and os.path.exists(student.photo_path):
-            try:
-                os.unlink(student.photo_path)
-            except Exception as e:
-                print(f'Failed to delete photo: {e}')
+        delete_photo(student.photo_path)
         db.session.delete(student)
     
     # Delete the student's login account
@@ -544,11 +557,7 @@ def delete_all_reports():
     # Only clear PPT/report fields — keep student accounts and rows intact
     students = StudentDetail.query.all()
     for student in students:
-        if student.photo_path and os.path.exists(student.photo_path):
-            try:
-                os.unlink(student.photo_path)
-            except Exception as e:
-                print(f'Failed to delete photo: {e}')
+        delete_photo(student.photo_path)
         student.slot_info = '[]'
         student.attendance_data = '{}'
         student.marks_data = '{}'
