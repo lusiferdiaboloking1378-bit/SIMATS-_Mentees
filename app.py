@@ -218,8 +218,11 @@ def student_dashboard():
         file = request.files.get('photo')
         if file and file.filename and allowed_file(file.filename):
             if os.environ.get('CLOUDINARY_URL'):
-                upload_result = cloudinary.uploader.upload(file, folder="simats_profiles")
-                student.photo_path = upload_result.get('secure_url')
+                try:
+                    upload_result = cloudinary.uploader.upload(file, folder="simats_profiles")
+                    student.photo_path = upload_result.get('secure_url')
+                except Exception as e:
+                    flash(f'Failed to upload to Cloudinary. Please check your CLOUDINARY_URL. Error: {str(e)}', 'danger')
             else:
                 filename = secure_filename(f"{session['user']}_{file.filename}")
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
