@@ -16,7 +16,8 @@ instance/
 *.sqlite3
 
 # Uploaded files (student photos)
-static/uploads/
+static/uploads/*
+!static/uploads/.gitkeep
 
 # IDE
 .vscode/
