@@ -202,3 +202,13 @@ td {
     border-radius: 50%;
     box-shadow: 0 0 10px var(--secondary);
 }
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .app-container { flex-direction: column; }
+    .sidebar { width: 100%; position: relative; height: auto; border-right: none; border-bottom: 1px solid var(--glass-border); padding: 20px; }
+    .sidebar nav { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    .menu-item { margin-bottom: 0; padding: 8px 12px; white-space: nowrap; }
+    .main-content { margin-left: 0; width: 100%; padding: 24px 20px; }
+    .glass { padding: 20px; }
+    table { display: block; overflow-x: auto; white-space: nowrap; }
+}
