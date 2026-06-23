@@ -267,6 +267,27 @@ def add_student():
     
     return redirect(url_for('faculty_dashboard'))
 
+@app.route('/edit_student_faculty/<reg_num>', methods=['POST'])
+def edit_student_faculty(reg_num):
+    if 'user' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    student = StudentDetail.query.get(reg_num)
+    if student:
+        student.name = request.form.get('name', student.name) or student.name
+        student.course = request.form.get('course', student.course) or student.course
+        student.registered_new_course = request.form.get('registered_new_course', student.registered_new_course or '')
+        student.online_course = request.form.get('online_course', student.online_course or '')
+        student.event_participation = request.form.get('event_participation', student.event_participation or '')
+        student.additional_description = request.form.get('description', student.additional_description or '')
+        
+        db.session.commit()
+        flash(f'Details for {student.name or reg_num} updated successfully!', 'success')
+    else:
+        flash('Student not found.', 'danger')
+        
+    return redirect(url_for('faculty_dashboard'))
+
 @app.route('/faculty')
 def faculty_dashboard():
     if 'user' not in session or session['role'] != 'faculty':
