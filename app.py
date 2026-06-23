@@ -1,5 +1,7 @@
 import os
 import json
+import urllib.request
+from io import BytesIO
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -389,9 +391,22 @@ def generate_report():
         frame.fill.fore_color.rgb = RGBColor(230, 230, 230)
         frame.line.color.rgb = RGBColor(200, 200, 200)
 
-        if student.photo_path and os.path.exists(student.photo_path):
-            slide1.shapes.add_picture(student.photo_path, left_img, top_img, width=width_img, height=height_img)
-        else:
+        photo_added = False
+        try:
+            if student.photo_path:
+                if student.photo_path.startswith('http'):
+                    req = urllib.request.Request(student.photo_path, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req) as response:
+                        image_stream = BytesIO(response.read())
+                    slide1.shapes.add_picture(image_stream, left_img, top_img, width=width_img, height=height_img)
+                    photo_added = True
+                elif os.path.exists(student.photo_path):
+                    slide1.shapes.add_picture(student.photo_path, left_img, top_img, width=width_img, height=height_img)
+                    photo_added = True
+        except Exception as e:
+            print(f"Error adding photo to PPT: {e}")
+
+        if not photo_added:
             rect = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, left_img, top_img, width_img, height_img)
             rect.fill.solid()
             rect.fill.fore_color.rgb = RGBColor(100, 100, 100)
