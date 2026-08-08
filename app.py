@@ -209,7 +209,8 @@ def student_dashboard():
                 'model': request.form.get(f'model_{slot}', current_marks.get(slot, {}).get('model', '-')),
                 'test1': request.form.get(f'test1_{slot}', current_marks.get(slot, {}).get('test1', '-')),
                 'test2': request.form.get(f'test2_{slot}', current_marks.get(slot, {}).get('test2', '-')),
-                'avg': request.form.get(f'avg_{slot}', current_marks.get(slot, {}).get('avg', '-'))
+                'avg': request.form.get(f'avg_{slot}', current_marks.get(slot, {}).get('avg', '-')),
+                'total_marks': request.form.get(f'total_marks_{slot}', current_marks.get(slot, {}).get('total_marks', ''))
             }
 
         student.attendance_data = json.dumps(att_data)
@@ -419,49 +420,45 @@ def generate_report():
             p.font.bold = True
             p.font.color.rgb = RGBColor(255, 255, 255)
 
-        # Table for Marks
-        # The image 1 shows a table for "Slot A"
-        main_slot = slots[0] if slots else "Slot A"
-        rows = 4
+        # --- Dynamic Marks Table: one row per slot ---
+        all_slots = slots if slots else ["Slot A"]
+        n_data_rows = len(all_slots)              # 1 row per slot
+        total_rows  = 1 + n_data_rows             # + 1 header row
         cols = 4
-        table_width = Inches(6.2)
-        table_height = Inches(2.8)
+        table_width  = Inches(6.2)
+        # Scale height: 0.55 in per data row, min 2.0 in
+        table_height = max(Inches(2.0), Inches(0.55 + n_data_rows * 0.55))
         left_tbl = Inches(3.3)
-        top_tbl = Inches(2.2)
-        
-        table = slide1.shapes.add_table(rows, cols, left_tbl, top_tbl, table_width, table_height).table
-        
-        # Header Row Styling
-        h_labels = [f"{main_slot}", "Total Marks", "Marks Obtained", "Class Average Mark"]
+        top_tbl  = Inches(2.2)
+
+        table = slide1.shapes.add_table(total_rows, cols, left_tbl, top_tbl, table_width, table_height).table
+
+        # Header Row
+        h_labels = ["Exam", "Total Marks", "Marks Obtained", "Class Average Mark"]
         for i, h in enumerate(h_labels):
             cell = table.cell(0, i)
             cell.text = h
             cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(112, 173, 71) # SIMATS Green
+            cell.fill.fore_color.rgb = RGBColor(112, 173, 71)   # SIMATS Green
             p = cell.text_frame.paragraphs[0]
             p.font.color.rgb = RGBColor(255, 255, 255)
             p.font.bold = True
-            p.font.size = Pt(14)
+            p.font.size = Pt(12)
             p.alignment = PP_ALIGN.CENTER
 
-        s_marks = marks_data.get(main_slot, {})
-        model_value = s_marks.get('model', '0') or '0'
-        test1_value = s_marks.get('test1', '0') or '0'
-        test2_value = s_marks.get('test2', '0') or '0'
-        avg_value = s_marks.get('avg', '0') or '0'
+        # Data rows – one row per slot (Test 1 only)
+        for row_idx, slot in enumerate(all_slots, start=1):
+            s_marks      = marks_data.get(slot, {})
+            test1_val    = str(s_marks.get('test1', '0') or '0')
+            avg_val      = str(s_marks.get('avg',   '0') or '0')
+            total_m_val  = str(s_marks.get('total_marks', '-') or '-')
 
-        row_data = [
-            [f"Model Exam ({main_slot})", "100", model_value, avg_value],
-            [f"Test 1 ({main_slot})", "20", test1_value, avg_value],
-            [f"Test 2 ({main_slot})", "20", test2_value, ""]
-        ]
-        
-        for r_idx, r_vals in enumerate(row_data):
+            r_vals = [f"Test 1 ({slot})", total_m_val, test1_val, avg_val]
             for c_idx, val in enumerate(r_vals):
-                cell = table.cell(r_idx + 1, c_idx)
-                cell.text = str(val)
+                cell = table.cell(row_idx, c_idx)
+                cell.text = val
                 cell.fill.solid()
-                cell.fill.fore_color.rgb = RGBColor(226, 239, 218) # Light green
+                cell.fill.fore_color.rgb = RGBColor(226, 239, 218)   # Light green
                 p = cell.text_frame.paragraphs[0]
                 p.font.size = Pt(9)
                 p.font.bold = True
