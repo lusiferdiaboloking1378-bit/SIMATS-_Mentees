@@ -348,6 +348,8 @@ def generate_report():
     
     students = StudentDetail.query.all()
     prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
     
     for student in students:
         slots = student.get_slots()
@@ -360,7 +362,7 @@ def generate_report():
         slide1 = prs.slides.add_slide(slide_layout)
         
         # Header Box with Logo-like text
-        header_shape = slide1.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(9.6), Inches(1.2))
+        header_shape = slide1.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(13.0), Inches(1.2))
         tf = header_shape.text_frame
         tf.word_wrap = True
         p = tf.paragraphs[0]
@@ -371,23 +373,24 @@ def generate_report():
         p.alignment = PP_ALIGN.CENTER
 
         # Banner Table for Name/Reg/Mentor (replacing the previous textbox for better alignment)
-        banner_tbl = slide1.shapes.add_table(1, 3, Inches(0.2), Inches(1.4), Inches(9.6), Inches(0.5)).table
+        banner_tbl = slide1.shapes.add_table(1, 6, Inches(0.2), Inches(1.4), Inches(13.0), Inches(0.5)).table
         banner_content = [
-            f"Mentee Name: {student.name or 'N/A'}",
-            f"Reg.NO: {student.reg_num or 'N/A'}",
-            f"Mentor name: {mentor_name}"
+            "Mentee Name", student.name or 'N/A',
+            "Reg.NO", student.reg_num or 'N/A',
+            "Mentor name", mentor_name
         ]
         
         for i, text in enumerate(banner_content):
             cell = banner_tbl.cell(0, i)
             cell.text = text
             cell.fill.solid()
-            cell.fill.fore_color.rgb = RGBColor(240, 240, 240)
+            cell.fill.fore_color.rgb = RGBColor(255, 255, 255)
             p = cell.text_frame.paragraphs[0]
-            p.font.size = Pt(11)
+            p.font.size = Pt(14)
             p.font.bold = True
+            p.font.name = 'Times New Roman'
             p.font.color.rgb = RGBColor(0, 0, 0)
-            p.alignment = PP_ALIGN.CENTER
+            p.alignment = PP_ALIGN.LEFT if i % 2 == 0 else PP_ALIGN.CENTER
 
         # Student Photo with gray border (matching image 1)
         left_img = Inches(0.5)
@@ -434,7 +437,7 @@ def generate_report():
         n_data_rows = len(all_slots)              # 1 row per slot
         total_rows  = 1 + n_data_rows             # + 1 header row
         cols = 4
-        table_width  = Inches(6.2)
+        table_width  = Inches(9.5)
         # Scale height: 0.55 in per data row, min 2.0 in
         table_height = max(Inches(2.0), Inches(0.55 + n_data_rows * 0.55))
         left_tbl = Inches(3.3)
@@ -452,7 +455,7 @@ def generate_report():
             p = cell.text_frame.paragraphs[0]
             p.font.color.rgb = RGBColor(255, 255, 255)
             p.font.bold = True
-            p.font.size = Pt(12)
+            p.font.size = Pt(18)
             p.alignment = PP_ALIGN.CENTER
 
         # Data rows – one row per slot (Test 1 only)
@@ -469,7 +472,7 @@ def generate_report():
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = RGBColor(226, 239, 218)   # Light green
                 p = cell.text_frame.paragraphs[0]
-                p.font.size = Pt(9)
+                p.font.size = Pt(18)
                 p.font.bold = True
                 p.alignment = PP_ALIGN.CENTER
 
@@ -480,7 +483,7 @@ def generate_report():
         slide2 = prs.slides.add_slide(slide_layout)
         
         # Header Box with Logo-like text
-        header2 = slide2.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(9.6), Inches(1.2))
+        header2 = slide2.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(13.0), Inches(1.2))
         tf2 = header2.text_frame
         p2 = tf2.paragraphs[0]
         p2.text = "SIMATS ENGINEERING"
@@ -489,25 +492,25 @@ def generate_report():
         p2.alignment = PP_ALIGN.CENTER
 
         # Main Gray Content Box
-        body_box = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.5), Inches(1.4), Inches(9), Inches(5.8))
+        body_box = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.5), Inches(1.4), Inches(12.3), Inches(5.8))
         body_box.fill.solid()
         body_box.fill.fore_color.rgb = RGBColor(245, 245, 245)
         body_box.line.color.rgb = RGBColor(200, 200, 200)
 
-        tf_body = slide2.shapes.add_textbox(Inches(0.6), Inches(1.5), Inches(8.8), Inches(5.6)).text_frame
+        tf_body = slide2.shapes.add_textbox(Inches(0.6), Inches(1.5), Inches(12.1), Inches(5.6)).text_frame
         tf_body.word_wrap = True
         
         # "Welcome to SIMATS ENGINEERING" with green highlight
         p = tf_body.paragraphs[0]
         p.text = "Welcome to SIMATS ENGINEERING"
         p.font.bold = True
-        p.font.size = Pt(18)
+        p.font.size = Pt(20)
         p.font.color.rgb = RGBColor(0, 0, 0)
         if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
         
         p = tf_body.add_paragraph()
         p.text = "Dear Parent,"
-        p.font.size = Pt(16)
+        p.font.size = Pt(18)
         p.font.bold = True
         p.space_after = Pt(10)
         
@@ -531,46 +534,46 @@ def generate_report():
             p.font.color.rgb = RGBColor(0, 0, 0)
             if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00') # Green highlight
             
-        p.font.size = Pt(13)
+        p.font.size = Pt(18)
         p.font.bold = True
         
         for slot in slots:
             p = tf_body.add_paragraph()
             p.text = f"Attendance for {slot}: {att_data.get(slot, 0)}%"
-            p.font.size = Pt(13)
+            p.font.size = Pt(18)
             p.font.bold = True
             if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
             
         p = tf_body.add_paragraph()
         p.space_before = Pt(15)
         p.text = f"{student.additional_description or 'I personally advised him to concentrate more on study and skill development... now he is currently attending an online course to improve his technical skills which is really appreciable...'}"
-        p.font.size = Pt(13)
+        p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
         
         p = tf_body.add_paragraph()
         p.text = f"New course: {student.registered_new_course or 'N/A'}"
-        p.font.size = Pt(14)
+        p.font.size = Pt(18)
         p.space_before = Pt(10)
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
         
         p = tf_body.add_paragraph()
         p.space_before = Pt(15)
         p.text = f"Your ward participated in: {student.event_participation or 'Star Summit'} and gave his very best throughout the journey. His dedication, hard work, and sincere efforts are truly appreciable."
-        p.font.size = Pt(13)
+        p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
 
         # Add the two green lines from the user's pic
         p = tf_body.add_paragraph()
         p.text = "All students are advised to pay their 2nd-year tuition fees on time through the Viana Portal."
-        p.font.size = Pt(13)
+        p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
         
         p = tf_body.add_paragraph()
         p.text = "Additionally, kindly upload your recent passport-size photograph to your Viana profile at the earliest, if you have not already done so...."
-        p.font.size = Pt(13)
+        p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
 
