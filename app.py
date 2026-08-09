@@ -15,6 +15,15 @@ from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 from datetime import datetime
+from pptx.oxml.xmlchemy import OxmlElement
+
+def add_highlight(run, color_hex):
+    rPr = run._r.get_or_add_rPr()
+    highlight = OxmlElement('a:highlight')
+    srgbClr = OxmlElement('a:srgbClr')
+    srgbClr.set('val', color_hex)
+    highlight.append(srgbClr)
+    rPr.append(highlight)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cinematic_secret_key_123'
@@ -465,14 +474,7 @@ def generate_report():
                 p.alignment = PP_ALIGN.CENTER
 
         # Footer Date
-        footer = slide1.shapes.add_textbox(Inches(7.9), Inches(7.2), Inches(2.2), Inches(0.35))
-        footer.text_frame.clear()
-        footer.text_frame.word_wrap = True
-        p_footer = footer.text_frame.paragraphs[0]
-        p_footer.text = f"Generated on {datetime.now().strftime('%d %b %Y')}"
-        p_footer.font.size = Pt(8)
-        p_footer.font.bold = True
-        p_footer.alignment = PP_ALIGN.RIGHT
+        # Removed as per request
 
         # --- SLIDE 2: MENTOR NOTES & ATTENDANCE ---
         slide2 = prs.slides.add_slide(slide_layout)
@@ -500,7 +502,8 @@ def generate_report():
         p.text = "Welcome to SIMATS ENGINEERING"
         p.font.bold = True
         p.font.size = Pt(18)
-        p.font.color.rgb = RGBColor(0, 150, 0)
+        p.font.color.rgb = RGBColor(0, 0, 0)
+        if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
         
         p = tf_body.add_paragraph()
         p.text = "Dear Parent,"
@@ -509,7 +512,25 @@ def generate_report():
         p.space_after = Pt(10)
         
         p = tf_body.add_paragraph()
-        p.text = f"So far {student.name or 'the student'} has maintained consistent attendance in the course."
+        
+        low_attendance = False
+        for slot in slots:
+            try:
+                if int(att_data.get(slot, 0)) < 80:
+                    low_attendance = True
+                    break
+            except (ValueError, TypeError):
+                pass
+                
+        if low_attendance:
+            p.text = f"{student.name or 'The student'} has attendance below 80%. Please maintain the attendance % above 80%."
+            p.font.color.rgb = RGBColor(0, 0, 0)
+            if len(p.runs) > 0: add_highlight(p.runs[0], 'FF0000') # Red highlight for warning
+        else:
+            p.text = f"So far {student.name or 'the student'} has maintained consistent attendance in the course."
+            p.font.color.rgb = RGBColor(0, 0, 0)
+            if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00') # Green highlight
+            
         p.font.size = Pt(13)
         p.font.bold = True
         
@@ -518,29 +539,49 @@ def generate_report():
             p.text = f"Attendance for {slot}: {att_data.get(slot, 0)}%"
             p.font.size = Pt(13)
             p.font.bold = True
+            if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
             
         p = tf_body.add_paragraph()
         p.space_before = Pt(15)
         p.text = f"{student.additional_description or 'I personally advised him to concentrate more on study and skill development... now he is currently attending an online course to improve his technical skills which is really appreciable...'}"
         p.font.size = Pt(13)
         p.font.bold = True
+        if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
         
         p = tf_body.add_paragraph()
         p.text = f"New course: {student.registered_new_course or 'N/A'}"
         p.font.size = Pt(14)
         p.space_before = Pt(10)
+        if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
         
         p = tf_body.add_paragraph()
         p.space_before = Pt(15)
         p.text = f"Your ward participated in: {student.event_participation or 'Star Summit'} and gave his very best throughout the journey. His dedication, hard work, and sincere efforts are truly appreciable."
         p.font.size = Pt(13)
         p.font.bold = True
+        if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
+
+        # Add the two green lines from the user's pic
+        p = tf_body.add_paragraph()
+        p.text = "All students are advised to pay their 2nd-year tuition fees on time through the Viana Portal."
+        p.font.size = Pt(13)
+        p.font.bold = True
+        if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
+        
+        p = tf_body.add_paragraph()
+        p.text = "Additionally, kindly upload your recent passport-size photograph to your Viana profile at the earliest, if you have not already done so...."
+        p.font.size = Pt(13)
+        p.font.bold = True
+        if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
+
+        # Apply Times New Roman font to all paragraphs in the Guru Padigam notes
+        for paragraph in tf_body.paragraphs:
+            paragraph.font.name = 'Times New Roman'
+            if len(paragraph.runs) > 0:
+                paragraph.runs[0].font.name = 'Times New Roman'
 
         # Footer Date
-        footer2 = slide2.shapes.add_textbox(Inches(8), Inches(7.2), Inches(2), Inches(0.3))
-        footer2.text = "GP June 05th to 11th 2026"
-        footer2.text_frame.paragraphs[0].font.size = Pt(8)
-        footer2.text_frame.paragraphs[0].font.bold = True
+        # Removed as per request
 
     report_path = 'Mentor_Dashboard_Report.pptx'
     prs.save(report_path)
