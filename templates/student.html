@@ -22,6 +22,9 @@
             <h3>Add New Slot</h3>
             <p>Enter the slot name (e.g. Slot C)</p>
             <input type="text" id="slot-modal-input" placeholder="Slot Name..." autocomplete="off">
+            <p style="margin-top:12px;">Enter the course name</p>
+            <input type="text" id="slot-course-input" placeholder="Course Name..." autocomplete="off"
+                style="margin-top:4px;">
             <p id="slot-modal-error" style="color:#ef4444;font-size:12px;margin-top:6px;display:none;">⚠ Slot already
                 exists! Please use a different name.</p>
             <div class="slot-modal-actions">
@@ -291,6 +294,8 @@
                 section.innerHTML = `
                     <div class="border-l-2 border-purple-500 pl-4 mt-8">
                         <h3 class="text-white font-bold">${slot} Performance</h3>
+                        ${sMarks.course ? `<p class="text-[10px] text-purple-400 font-bold uppercase mt-1">Course: ${sMarks.course}</p>` : ''}
+                        <input type="hidden" name="course_${slot}" value="${sMarks.course || ''}">
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div>
@@ -333,7 +338,9 @@
         function addSlot() {
             const overlay = document.getElementById('slot-modal-overlay');
             const input = document.getElementById('slot-modal-input');
+            const courseInput = document.getElementById('slot-course-input');
             input.value = '';
+            if (courseInput) courseInput.value = '';
             overlay.classList.add('active');
             setTimeout(() => input.focus(), 100);
         }
@@ -345,8 +352,10 @@
 
         function confirmAddSlot() {
             const input = document.getElementById('slot-modal-input');
+            const courseInput = document.getElementById('slot-course-input');
             const errorEl = document.getElementById('slot-modal-error');
             const name = input.value.trim();
+            const courseName = courseInput ? courseInput.value.trim() : '';
             errorEl.style.display = 'none';
             if (!name) return;
             // Sync slots from DOM so any inline edits are respected
@@ -354,6 +363,8 @@
             const allSlots = Array.from(new Set([...slots, ...domSlots]));
             if (!allSlots.includes(name)) {
                 slots.push(name);
+                if (!marksData[name]) marksData[name] = {};
+                marksData[name].course = courseName;
                 updateSlotList();
                 renderDynamicFields();
                 closeSlotModal();

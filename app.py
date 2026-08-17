@@ -31,6 +31,10 @@ uri = os.environ.get("DATABASE_URL", "sqlite:///database.db")
 if uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = uri
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,      # Test connection before use — fixes stale connection errors
+    'pool_recycle': 300,        # Recycle connections every 5 mins — prevents timeout crashes
+}
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -219,7 +223,8 @@ def student_dashboard():
                 'test1': request.form.get(f'test1_{slot}', current_marks.get(slot, {}).get('test1', '-')),
                 'test2': request.form.get(f'test2_{slot}', current_marks.get(slot, {}).get('test2', '-')),
                 'avg': request.form.get(f'avg_{slot}', current_marks.get(slot, {}).get('avg', '-')),
-                'total_marks': request.form.get(f'total_marks_{slot}', current_marks.get(slot, {}).get('total_marks', ''))
+                'total_marks': request.form.get(f'total_marks_{slot}', current_marks.get(slot, {}).get('total_marks', '')),
+                'course': request.form.get(f'course_{slot}', current_marks.get(slot, {}).get('course', ''))
             }
 
         student.attendance_data = json.dumps(att_data)
@@ -539,7 +544,11 @@ def generate_report():
         
         for slot in slots:
             p = tf_body.add_paragraph()
-            p.text = f"Attendance for {slot}: {att_data.get(slot, 0)}%"
+            course_name = marks_data.get(slot, {}).get('course', '')
+            if course_name:
+                p.text = f"Attendance for {slot}: {course_name}: {att_data.get(slot, 0)}%"
+            else:
+                p.text = f"Attendance for {slot}: {att_data.get(slot, 0)}%"
             p.font.size = Pt(18)
             p.font.bold = True
             if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
