@@ -568,7 +568,10 @@ def generate_report():
         
         p = tf_body.add_paragraph()
         p.space_before = Pt(15)
-        p.text = f"Your ward participated in: {student.event_participation or 'Star Summit'} and gave his very best throughout the journey. His dedication, hard work, and sincere efforts are truly appreciable."
+        if student.event_participation and student.event_participation.strip():
+            p.text = f"Your ward participated in: {student.event_participation.strip()} and gave his very best throughout the journey. His dedication, hard work, and sincere efforts are truly appreciable."
+        else:
+            p.text = "We encourage your ward to actively participate in upcoming events and extracurricular activities to build their skills and gain valuable experience."
         p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
