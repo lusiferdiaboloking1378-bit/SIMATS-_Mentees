@@ -146,9 +146,11 @@ with app.app_context():
         inspector = inspect(db.engine)
         columns = [col['name'] for col in inspector.get_columns('student_detail')]
         if 'last_updated' not in columns:
-            db.session.execute(db.text('ALTER TABLE student_detail ADD COLUMN last_updated DATETIME'))
+            col_type = 'TIMESTAMP' if db.engine.name == 'postgresql' else 'DATETIME'
+            db.session.execute(db.text(f'ALTER TABLE student_detail ADD COLUMN last_updated {col_type}'))
             db.session.commit()
     except Exception as e:
+        db.session.rollback()
         print(f"Migration error: {e}")
     seed_db()
 
