@@ -62,6 +62,7 @@ class StudentDetail(db.Model):
     event_participation = db.Column(db.Text)
     additional_description = db.Column(db.Text)
     photo_path = db.Column(db.String(200))
+    last_updated = db.Column(db.DateTime, nullable=True)
 
     def get_attendance(self):
         try: return json.loads(self.attendance_data)
@@ -124,7 +125,8 @@ def seed_db():
             course='CSA0708 - Computer Networks',
             slot_info=json.dumps(['Slot A', 'Slot B']),
             attendance_data=json.dumps({'Slot A': 81, 'Slot B': 98}),
-            marks_data=json.dumps({'Slot A': {'model': '20', 'test1': '20', 'avg': '15'}})
+            marks_data=json.dumps({'Slot A': {'model': '20', 'test1': '20', 'avg': '15'}}),
+            last_updated=datetime.now()
         ))
 
     # Demo student: Ibrahim@123
@@ -139,6 +141,15 @@ def seed_db():
 
 with app.app_context():
     db.create_all()  # Only creates tables if they don't exist — never wipes data
+    try:
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('student_detail')]
+        if 'last_updated' not in columns:
+            db.session.execute(db.text('ALTER TABLE student_detail ADD COLUMN last_updated DATETIME'))
+            db.session.commit()
+    except Exception as e:
+        print(f"Migration error: {e}")
     seed_db()
 
 # Routes
@@ -249,6 +260,7 @@ def student_dashboard():
                 file.save(filepath)
                 student.photo_path = filepath
 
+        student.last_updated = datetime.now()
         db.session.commit()
         flash('Details updated successfully!', 'success')
         return redirect(url_for('student_dashboard'))
@@ -276,7 +288,7 @@ def add_student():
             password_hash=bcrypt.generate_password_hash(password).decode('utf-8'),
             role='student'
         )
-        new_detail = StudentDetail(reg_num=reg_num, name=name)
+        new_detail = StudentDetail(reg_num=reg_num, name=name, last_updated=datetime.now())
         db.session.add(new_user)
         db.session.add(new_detail)
         db.session.commit()
@@ -298,6 +310,7 @@ def edit_student_faculty(reg_num):
         student.event_participation = request.form.get('event_participation', student.event_participation or '')
         student.additional_description = request.form.get('description', student.additional_description or '')
         
+        student.last_updated = datetime.now()
         db.session.commit()
         flash(f'Details for {student.name or reg_num} updated successfully!', 'success')
     else:
@@ -340,6 +353,7 @@ def faculty_dashboard():
             'event_participation': s.event_participation,
             'additional_description': s.additional_description,
             'photo_path': s.photo_path,
+            'last_updated': s.last_updated.strftime('%d-%b-%Y %I:%M %p') if s.last_updated else 'N/A',
         }
         for s in students
     ]
@@ -618,6 +632,7 @@ def clear_student(reg_num):
         student.additional_description = None
         delete_photo(student.photo_path)
         student.photo_path = None
+        student.last_updated = datetime.now()
         db.session.commit()
         flash(f'Report data for {student.name or reg_num} has been cleared.', 'success')
     else:
