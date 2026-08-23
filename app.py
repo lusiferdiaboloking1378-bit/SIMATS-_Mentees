@@ -127,7 +127,7 @@ def seed_db():
             slot_info=json.dumps(['Slot A', 'Slot B']),
             attendance_data=json.dumps({'Slot A': 81, 'Slot B': 98}),
             marks_data=json.dumps({'Slot A': {'model': '20', 'test1': '20', 'avg': '15'}}),
-            last_updated=datetime.now(pytz.timezone('Asia/Kolkata'))
+            last_updated=datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
         ))
 
     # Demo student: Ibrahim@123
@@ -263,7 +263,7 @@ def student_dashboard():
                 file.save(filepath)
                 student.photo_path = filepath
 
-        student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata'))
+        student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
         db.session.commit()
         flash('Details updated successfully!', 'success')
         return redirect(url_for('student_dashboard'))
@@ -291,7 +291,7 @@ def add_student():
             password_hash=bcrypt.generate_password_hash(password).decode('utf-8'),
             role='student'
         )
-        new_detail = StudentDetail(reg_num=reg_num, name=name, last_updated=datetime.now(pytz.timezone('Asia/Kolkata')))
+        new_detail = StudentDetail(reg_num=reg_num, name=name, last_updated=datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None))
         db.session.add(new_user)
         db.session.add(new_detail)
         db.session.commit()
@@ -313,7 +313,7 @@ def edit_student_faculty(reg_num):
         student.event_participation = request.form.get('event_participation', student.event_participation or '')
         student.additional_description = request.form.get('description', student.additional_description or '')
         
-        student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata'))
+        student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
         db.session.commit()
         flash(f'Details for {student.name or reg_num} updated successfully!', 'success')
     else:
@@ -635,7 +635,7 @@ def clear_student(reg_num):
         student.additional_description = None
         delete_photo(student.photo_path)
         student.photo_path = None
-        student.last_updated = datetime.now()
+        student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
         db.session.commit()
         flash(f'Report data for {student.name or reg_num} has been cleared.', 'success')
     else:
