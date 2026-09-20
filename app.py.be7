@@ -32,22 +32,10 @@ uri = os.environ.get("DATABASE_URL", "sqlite:///database.db")
 if uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = uri
-
-# Use NullPool for Neon PostgreSQL — Neon's official recommendation for web frameworks.
-if 'postgresql' in uri or 'postgres' in uri:
-    from sqlalchemy.pool import NullPool
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'poolclass': NullPool,
-        'connect_args': {
-            'sslmode': 'require',
-            'connect_timeout': 10,
-        },
-    }
-else:
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,
-        'pool_recycle': 300,
-    }
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,      # Test connection before use — fixes stale connection errors
+    'pool_recycle': 300,        # Recycle connections every 5 mins — prevents timeout crashes
+}
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
