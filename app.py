@@ -62,6 +62,7 @@ class StudentDetail(db.Model):
     online_course = db.Column(db.String(200))
     event_participation = db.Column(db.Text)
     additional_description = db.Column(db.Text)
+    custom_advisory = db.Column(db.Text)
     photo_path = db.Column(db.String(200))
     last_updated = db.Column(db.DateTime, nullable=True)
 
@@ -76,6 +77,14 @@ class StudentDetail(db.Model):
     def get_slots(self):
         try: return json.loads(self.slot_info)
         except: return []
+
+class GlobalAdvisory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False, default="All students are advised to pay their 2nd-year tuition fees on time through the Viana Portal.\nAdditionally, kindly upload your recent passport-size photograph to your Viana profile at the earliest, if you have not already done so....")
+
+class GlobalMentorObservation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False, default="I personally advised the student to concentrate more on study and skill development. The student is currently attending an online course to improve their technical skills, which is really appreciable.")
 
 # Helper functions
 def delete_photo(photo_path):
@@ -312,6 +321,7 @@ def edit_student_faculty(reg_num):
         student.online_course = request.form.get('online_course', student.online_course or '')
         student.event_participation = request.form.get('event_participation', student.event_participation or '')
         student.additional_description = request.form.get('description', student.additional_description or '')
+        student.custom_advisory = request.form.get('custom_advisory', student.custom_advisory or '')
         
         student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
         db.session.commit()
@@ -321,12 +331,51 @@ def edit_student_faculty(reg_num):
         
     return redirect(url_for('faculty_dashboard'))
 
+@app.route('/update_global_advisory', methods=['POST'])
+def update_global_advisory():
+    if 'user' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    advisory_text = request.form.get('global_advisory', '').strip()
+    global_adv = GlobalAdvisory.query.first()
+    if not global_adv:
+        global_adv = GlobalAdvisory(id=1, content=advisory_text)
+        db.session.add(global_adv)
+    else:
+        global_adv.content = advisory_text
+    
+    db.session.commit()
+    flash('Global Institutional Advisory updated for all students!', 'success')
+    return redirect(url_for('faculty_dashboard'))
+
+@app.route('/update_global_observation', methods=['POST'])
+def update_global_observation():
+    if 'user' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    observation_text = request.form.get('global_observation', '').strip()
+    global_obs = GlobalMentorObservation.query.first()
+    if not global_obs:
+        global_obs = GlobalMentorObservation(id=1, content=observation_text)
+        db.session.add(global_obs)
+    else:
+        global_obs.content = observation_text
+    
+    db.session.commit()
+    flash('Global Mentor Observation updated for all students!', 'success')
+    return redirect(url_for('faculty_dashboard'))
+
 @app.route('/faculty')
 def faculty_dashboard():
     if 'user' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
     
     students = StudentDetail.query.all()
+    global_adv = GlobalAdvisory.query.first()
+    global_advisory_text = global_adv.content if global_adv else ""
+    global_obs = GlobalMentorObservation.query.first()
+    global_observation_text = global_obs.content if global_obs else ""
+    
     # Simplified stats for global update
     total_att_a = 0
     count_a = 0
@@ -355,13 +404,14 @@ def faculty_dashboard():
             'online_course': s.online_course,
             'event_participation': s.event_participation,
             'additional_description': s.additional_description,
+            'custom_advisory': s.custom_advisory,
             'photo_path': s.photo_path,
             'last_updated': s.last_updated.strftime('%d-%b-%Y %I:%M %p') if s.last_updated else 'N/A',
         }
         for s in students
     ]
 
-    return render_template('faculty.html', students=students, students_json=students_json, stats=stats)
+    return render_template('faculty.html', students=students, students_json=students_json, stats=stats, global_advisory=global_advisory_text, global_observation=global_observation_text)
 
 @app.route('/generate_report')
 def generate_report():
@@ -570,9 +620,13 @@ def generate_report():
             p.font.bold = True
             if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
             
+        # Use student-specific observation if set, otherwise fall back to global observation
+        global_obs_record = GlobalMentorObservation.query.first()
+        global_obs_text = global_obs_record.content if global_obs_record else 'I personally advised the student to concentrate more on study and skill development.'
+        observation_to_use = student.additional_description.strip() if (student.additional_description and student.additional_description.strip()) else global_obs_text
         p = tf_body.add_paragraph()
         p.space_before = Pt(15)
-        p.text = f"{student.additional_description or 'I personally advised him to concentrate more on study and skill development... now he is currently attending an online course to improve his technical skills which is really appreciable...'}"
+        p.text = observation_to_use
         p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
@@ -593,18 +647,16 @@ def generate_report():
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
 
-        # Add the two green lines from the user's pic
-        p = tf_body.add_paragraph()
-        p.text = "All students are advised to pay their 2nd-year tuition fees on time through the Viana Portal."
-        p.font.size = Pt(18)
-        p.font.bold = True
-        if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
+        # Add green institutional advisory lines (Global or Custom Override)
+        advisory_to_use = student.custom_advisory.strip() if (student.custom_advisory and student.custom_advisory.strip()) else (GlobalAdvisory.query.first().content if GlobalAdvisory.query.first() else "All students are advised to pay their 2nd-year tuition fees on time through the Viana Portal.\nAdditionally, kindly upload your recent passport-size photograph to your Viana profile at the earliest...")
         
-        p = tf_body.add_paragraph()
-        p.text = "Additionally, kindly upload your recent passport-size photograph to your Viana profile at the earliest, if you have not already done so...."
-        p.font.size = Pt(18)
-        p.font.bold = True
-        if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
+        for adv_line in advisory_to_use.split('\n'):
+            if adv_line.strip():
+                p = tf_body.add_paragraph()
+                p.text = adv_line.strip()
+                p.font.size = Pt(18)
+                p.font.bold = True
+                if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
 
         # Apply Times New Roman font to all paragraphs in the Guru Padigam notes
         for paragraph in tf_body.paragraphs:
