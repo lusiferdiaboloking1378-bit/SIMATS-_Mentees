@@ -33,11 +33,15 @@ if uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = uri
 
-# Use NullPool for Neon PostgreSQL — Neon's official recommendation for web frameworks.
+# Use QueuePool for better concurrency. NullPool opens a new connection per query,
+# which causes connection exhaustion / 500 errors when many students use the app at once.
 if 'postgresql' in uri or 'postgres' in uri:
-    from sqlalchemy.pool import NullPool
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'poolclass': NullPool,
+        'pool_size': 10,
+        'max_overflow': 20,
+        'pool_timeout': 30,
+        'pool_recycle': 280,
+        'pool_pre_ping': True,
         'connect_args': {
             'sslmode': 'require',
             'connect_timeout': 10,
