@@ -449,16 +449,7 @@ def generate_report():
         slide_layout = prs.slide_layouts[6] # Blank
         slide1 = prs.slides.add_slide(slide_layout)
         
-        # Header Box with Logo-like text
-        header_shape = slide1.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(13.0), Inches(1.2))
-        tf = header_shape.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.text = "SIMATS ENGINEERING"
-        p.font.size = Pt(44)
-        p.font.bold = True
-        p.font.color.rgb = RGBColor(0, 0, 0)
-        p.alignment = PP_ALIGN.CENTER
+        # Header Box removed as per request
 
         # Banner Table for Name/Reg/Mentor (replacing the previous textbox for better alignment)
         banner_tbl = slide1.shapes.add_table(1, 6, Inches(0.2), Inches(1.4), Inches(13.0), Inches(0.5)).table
@@ -570,14 +561,7 @@ def generate_report():
         # --- SLIDE 2: MENTOR NOTES & ATTENDANCE ---
         slide2 = prs.slides.add_slide(slide_layout)
         
-        # Header Box with Logo-like text
-        header2 = slide2.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(13.0), Inches(1.2))
-        tf2 = header2.text_frame
-        p2 = tf2.paragraphs[0]
-        p2.text = "SIMATS ENGINEERING"
-        p2.font.size = Pt(44)
-        p2.font.bold = True
-        p2.alignment = PP_ALIGN.CENTER
+        # Header Box removed as per request
 
         # Main Gray Content Box
         body_box = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.5), Inches(1.4), Inches(12.3), Inches(5.8))
