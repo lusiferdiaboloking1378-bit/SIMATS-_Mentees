@@ -248,64 +248,75 @@ def student_dashboard():
         db.session.commit()
 
     if request.method == 'POST':
-        student.name = request.form.get('name', student.name) or student.name
-        student.course = request.form.get('course', student.course) or student.course
+        try:
+            student.name = (request.form.get('name') or '').strip() or student.name
+            student.course = (request.form.get('course') or '').strip() or student.course
 
-        # Dynamic Slots handling
-        slots = request.form.getlist('slot_names[]')
-        if not slots:
-            slots = student.get_slots() or []
-        student.slot_info = json.dumps(slots)
+            # Dynamic Slots handling
+            slots = [s.strip() for s in request.form.getlist('slot_names[]') if s and s.strip()]
+            if not slots:
+                slots = student.get_slots() or []
+            student.slot_info = json.dumps(slots)
 
-        att_data = {}
-        marks_data = {}
-        current_attendance = student.get_attendance()
-        current_marks = student.get_marks()
-        for slot in slots:
-            if not slot:
-                continue
-            att_data[slot] = request.form.get(f'att_{slot}', current_attendance.get(slot, 0))
-            marks_data[slot] = {
-                'model': request.form.get(f'model_{slot}', current_marks.get(slot, {}).get('model', '-')),
-                'test1': request.form.get(f'test1_{slot}', current_marks.get(slot, {}).get('test1', '-')),
-                'test2': request.form.get(f'test2_{slot}', current_marks.get(slot, {}).get('test2', '-')),
-                'avg': request.form.get(f'avg_{slot}', current_marks.get(slot, {}).get('avg', '-')),
-                'total_marks': request.form.get(f'total_marks_{slot}', current_marks.get(slot, {}).get('total_marks', '')),
-                'course': request.form.get(f'course_{slot}', current_marks.get(slot, {}).get('course', ''))
-            }
+            att_data = {}
+            marks_data = {}
+            current_attendance = student.get_attendance()
+            current_marks = student.get_marks()
+            for slot in slots:
+                att_val = request.form.get(f'att_{slot}', current_attendance.get(slot, 0))
+                att_data[slot] = str(att_val).strip() if att_val is not None else 0
+                marks_data[slot] = {
+                    'model': (request.form.get(f'model_{slot}') or current_marks.get(slot, {}).get('model', '-')).strip(),
+                    'test1': (request.form.get(f'test1_{slot}') or current_marks.get(slot, {}).get('test1', '-')).strip(),
+                    'test2': (request.form.get(f'test2_{slot}') or current_marks.get(slot, {}).get('test2', '-')).strip(),
+                    'avg': (request.form.get(f'avg_{slot}') or current_marks.get(slot, {}).get('avg', '-')).strip(),
+                    'total_marks': (request.form.get(f'total_marks_{slot}') or current_marks.get(slot, {}).get('total_marks', '')).strip(),
+                    'course': (request.form.get(f'course_{slot}') or current_marks.get(slot, {}).get('course', '')).strip()
+                }
 
-        student.attendance_data = json.dumps(att_data)
-        student.marks_data = json.dumps(marks_data)
+            student.attendance_data = json.dumps(att_data)
+            student.marks_data = json.dumps(marks_data)
 
-        student.registered_new_course = request.form.get('registered_new_course', student.registered_new_course or '')
-        student.online_course = request.form.get('online_course', student.online_course or '')
-        student.event_participation = request.form.get('event_participation', student.event_participation or '')
-        student.additional_description = request.form.get('description', student.additional_description or '')
+            student.registered_new_course = (request.form.get('registered_new_course') or '').strip()
+            student.online_course = (request.form.get('online_course') or '').strip()
+            student.event_participation = (request.form.get('event_participation') or '').strip()
+            student.additional_description = (request.form.get('description') or '').strip()
 
-        # Results data — save subject/grade entries from My Results tab
-        result_subjects = request.form.getlist('result_subject[]')
-        result_grades = request.form.getlist('result_grade[]')
-        if result_subjects:  # Only update if results fields were submitted
-            results = [{'subject': s.strip(), 'grade': g.strip()} for s, g in zip(result_subjects, result_grades) if s.strip()]
-            student.results_data = json.dumps(results)
+            # Results data — save subject/grade entries from My Results tab
+            result_subjects = request.form.getlist('result_subject[]')
+            result_grades = request.form.getlist('result_grade[]')
+            if result_subjects:  # Only update if results fields were submitted
+                results = [{'subject': s.strip(), 'grade': g.strip()} for s, g in zip(result_subjects, result_grades) if s and s.strip()]
+                student.results_data = json.dumps(results)
 
-        file = request.files.get('photo')
-        if file and file.filename and allowed_file(file.filename):
-            if os.environ.get('CLOUDINARY_URL'):
-                try:
-                    upload_result = cloudinary.uploader.upload(file, folder="simats_profiles")
-                    student.photo_path = upload_result.get('secure_url')
-                except Exception as e:
-                    flash(f'Failed to upload to Cloudinary. Please check your CLOUDINARY_URL. Error: {str(e)}', 'danger')
-            else:
-                filename = secure_filename(f"{session['user']}_{file.filename}")
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                student.photo_path = filepath
+            file = request.files.get('photo')
+            if file and file.filename and allowed_file(file.filename):
+                if os.environ.get('CLOUDINARY_URL'):
+                    try:
+                        upload_result = cloudinary.uploader.upload(file, folder="simats_profiles")
+                        student.photo_path = upload_result.get('secure_url')
+                    except Exception as e:
+                        flash(f'Failed to upload photo to cloud storage: {str(e)}', 'warning')
+                else:
+                    try:
+                        filename = secure_filename(f"{session['user']}_{file.filename}")
+                        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                        file.save(filepath)
+                        student.photo_path = filepath
+                    except Exception as e:
+                        print(f"Local photo upload warning: {e}")
 
-        student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
-        db.session.commit()
-        flash('Details updated successfully!', 'success')
+            # Safe Kolkata timestamp calculation (pure Python, immune to OS pytz missing tzdata)
+            from datetime import timedelta
+            student.last_updated = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            
+            db.session.commit()
+            flash('Details updated successfully!', 'success')
+        except Exception as e:
+            db.session.rollback()
+            print(f"Student submit error: {e}")
+            flash('An error occurred while saving your details. Please try again.', 'danger')
+
         return redirect(url_for('student_dashboard'))
     
     # Passing current data as dicts
