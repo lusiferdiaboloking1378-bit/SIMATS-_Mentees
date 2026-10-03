@@ -78,6 +78,7 @@ class StudentDetail(db.Model):
     online_course = db.Column(db.String(200))
     event_participation = db.Column(db.Text)
     additional_description = db.Column(db.Text)
+    results_data = db.Column(db.Text, default='[]')  # [{"subject": "Maths", "grade": "A"}]
     custom_advisory = db.Column(db.Text)
     photo_path = db.Column(db.String(200))
     last_updated = db.Column(db.DateTime, nullable=True)
@@ -101,6 +102,10 @@ class GlobalAdvisory(db.Model):
 class GlobalMentorObservation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False, default="I personally advised the student to concentrate more on study and skill development. The student is currently attending an online course to improve their technical skills, which is really appreciable.")
+
+class GlobalSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    show_grades_in_ppt = db.Column(db.Boolean, nullable=False, default=False)
 
 # Helper functions
 def delete_photo(photo_path):
@@ -174,6 +179,9 @@ with app.app_context():
         if 'last_updated' not in columns:
             col_type = 'TIMESTAMP' if db.engine.name == 'postgresql' else 'DATETIME'
             db.session.execute(db.text(f'ALTER TABLE student_detail ADD COLUMN last_updated {col_type}'))
+            db.session.commit()
+        if 'results_data' not in columns:
+            db.session.execute(db.text('ALTER TABLE student_detail ADD COLUMN results_data TEXT DEFAULT \'[]\''))
             db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -274,6 +282,13 @@ def student_dashboard():
         student.event_participation = request.form.get('event_participation', student.event_participation or '')
         student.additional_description = request.form.get('description', student.additional_description or '')
 
+        # Results data — save subject/grade entries from My Results tab
+        result_subjects = request.form.getlist('result_subject[]')
+        result_grades = request.form.getlist('result_grade[]')
+        if result_subjects:  # Only update if results fields were submitted
+            results = [{'subject': s.strip(), 'grade': g.strip()} for s, g in zip(result_subjects, result_grades) if s.strip()]
+            student.results_data = json.dumps(results)
+
         file = request.files.get('photo')
         if file and file.filename and allowed_file(file.filename):
             if os.environ.get('CLOUDINARY_URL'):
@@ -294,10 +309,15 @@ def student_dashboard():
         return redirect(url_for('student_dashboard'))
     
     # Passing current data as dicts
-    return render_template('student.html', student=student, 
-                           attendance=student.get_attendance(), 
-                           marks=student.get_marks(), 
-                           slots=student.get_slots())
+    try:
+        results = json.loads(student.results_data) if student.results_data else []
+    except:
+        results = []
+    return render_template('student.html', student=student,
+                           attendance=student.get_attendance(),
+                           marks=student.get_marks(),
+                           slots=student.get_slots(),
+                           results=results)
 
 @app.route('/add_student', methods=['POST'])
 def add_student():
@@ -338,7 +358,13 @@ def edit_student_faculty(reg_num):
         student.event_participation = request.form.get('event_participation', student.event_participation or '')
         student.additional_description = request.form.get('description', student.additional_description or '')
         student.custom_advisory = request.form.get('custom_advisory', student.custom_advisory or '')
-        
+
+        # Save results from faculty edit modal
+        result_subjects = request.form.getlist('result_subject[]')
+        result_grades = request.form.getlist('result_grade[]')
+        results = [{'subject': s.strip(), 'grade': g.strip()} for s, g in zip(result_subjects, result_grades) if s.strip()]
+        student.results_data = json.dumps(results)
+
         student.last_updated = datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
         db.session.commit()
         flash(f'Details for {student.name or reg_num} updated successfully!', 'success')
@@ -427,7 +453,23 @@ def faculty_dashboard():
         for s in students
     ]
 
-    return render_template('faculty.html', students=students, students_json=students_json, stats=stats, global_advisory=global_advisory_text, global_observation=global_observation_text)
+    return render_template('faculty.html', students=students, students_json=students_json, stats=stats,
+                           global_advisory=global_advisory_text,
+                           global_observation=global_observation_text,
+                           show_grades_in_ppt=(GlobalSettings.query.first().show_grades_in_ppt if GlobalSettings.query.first() else False))
+
+@app.route('/toggle_grade_ppt', methods=['POST'])
+def toggle_grade_ppt():
+    if 'user' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    settings = GlobalSettings.query.first()
+    if not settings:
+        settings = GlobalSettings(id=1, show_grades_in_ppt=True)
+        db.session.add(settings)
+    else:
+        settings.show_grades_in_ppt = not settings.show_grades_in_ppt
+    db.session.commit()
+    return redirect(url_for('faculty_dashboard'))
 
 @app.route('/generate_report')
 def generate_report():
@@ -560,8 +602,12 @@ def generate_report():
 
         # --- SLIDE 2: MENTOR NOTES & ATTENDANCE ---
         slide2 = prs.slides.add_slide(slide_layout)
-        
+
         # Header Box removed as per request
+
+        # Read grade toggle setting
+        ppt_settings = GlobalSettings.query.first()
+        show_grades = ppt_settings.show_grades_in_ppt if ppt_settings else False
 
         # Main Gray Content Box
         body_box = slide2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.5), Inches(1.4), Inches(12.3), Inches(5.8))
@@ -571,7 +617,7 @@ def generate_report():
 
         tf_body = slide2.shapes.add_textbox(Inches(0.6), Inches(1.5), Inches(12.1), Inches(5.6)).text_frame
         tf_body.word_wrap = True
-        
+
         # "Welcome to SIMATS ENGINEERING" with green highlight
         p = tf_body.paragraphs[0]
         p.text = "Welcome to SIMATS ENGINEERING"
@@ -579,15 +625,15 @@ def generate_report():
         p.font.size = Pt(20)
         p.font.color.rgb = RGBColor(0, 0, 0)
         if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
-        
+
         p = tf_body.add_paragraph()
         p.text = "Dear Parent,"
         p.font.size = Pt(18)
         p.font.bold = True
         p.space_after = Pt(10)
-        
+
         p = tf_body.add_paragraph()
-        
+
         low_attendance = False
         for slot in slots:
             try:
@@ -596,19 +642,19 @@ def generate_report():
                     break
             except (ValueError, TypeError):
                 pass
-                
+
         if low_attendance:
             p.text = f"{student.name or 'The student'} has attendance below 80%. Please maintain the attendance % above 80%."
             p.font.color.rgb = RGBColor(0, 0, 0)
-            if len(p.runs) > 0: add_highlight(p.runs[0], 'FF0000') # Red highlight for warning
+            if len(p.runs) > 0: add_highlight(p.runs[0], 'FF0000')
         else:
             p.text = f"So far {student.name or 'the student'} has maintained consistent attendance in the course."
             p.font.color.rgb = RGBColor(0, 0, 0)
-            if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00') # Green highlight
-            
+            if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
+
         p.font.size = Pt(18)
         p.font.bold = True
-        
+
         for slot in slots:
             p = tf_body.add_paragraph()
             course_name = marks_data.get(slot, {}).get('course', '')
@@ -619,7 +665,7 @@ def generate_report():
             p.font.size = Pt(18)
             p.font.bold = True
             if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
-            
+
         # Use student-specific observation if set, otherwise fall back to global observation
         global_obs_record = GlobalMentorObservation.query.first()
         global_obs_text = global_obs_record.content if global_obs_record else 'I personally advised the student to concentrate more on study and skill development.'
@@ -630,26 +676,53 @@ def generate_report():
         p.font.size = Pt(18)
         p.font.bold = True
         if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
-        
-        p = tf_body.add_paragraph()
-        p.text = f"New course: {student.registered_new_course or 'N/A'}"
-        p.font.size = Pt(18)
-        p.space_before = Pt(10)
-        if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
-        
-        p = tf_body.add_paragraph()
-        p.space_before = Pt(15)
-        if student.event_participation and student.event_participation.strip():
-            p.text = f"Your ward participated in: {student.event_participation.strip()} and gave his very best throughout the journey. His dedication, hard work, and sincere efforts are truly appreciable."
+
+        if show_grades:
+            # --- GRADES MODE: show subject results, skip new course & event ---
+            try:
+                results = json.loads(student.results_data) if student.results_data else []
+            except:
+                results = []
+            if results:
+                p = tf_body.add_paragraph()
+                p.text = "Subject Results:"
+                p.font.size = Pt(18)
+                p.font.bold = True
+                p.space_before = Pt(10)
+                if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
+                for r in results:
+                    p = tf_body.add_paragraph()
+                    p.text = f"  {r.get('subject', '')}  —  Grade: {r.get('grade', '')}"
+                    p.font.size = Pt(18)
+                    p.font.bold = True
+                    if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
+            else:
+                p = tf_body.add_paragraph()
+                p.text = "No subject results added yet."
+                p.font.size = Pt(18)
+                p.font.bold = True
+                p.space_before = Pt(10)
         else:
-            p.text = "We encourage your ward to actively participate in upcoming events and extracurricular activities to build their skills and gain valuable experience."
-        p.font.size = Pt(18)
-        p.font.bold = True
-        if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
+            # --- STANDARD MODE: show new course & event, skip grades ---
+            p = tf_body.add_paragraph()
+            p.text = f"New course: {student.registered_new_course or 'N/A'}"
+            p.font.size = Pt(18)
+            p.space_before = Pt(10)
+            if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
+
+            p = tf_body.add_paragraph()
+            p.space_before = Pt(15)
+            if student.event_participation and student.event_participation.strip():
+                p.text = f"Your ward participated in: {student.event_participation.strip()} and gave his very best throughout the journey. His dedication, hard work, and sincere efforts are truly appreciable."
+            else:
+                p.text = "We encourage your ward to actively participate in upcoming events and extracurricular activities to build their skills and gain valuable experience."
+            p.font.size = Pt(18)
+            p.font.bold = True
+            if len(p.runs) > 0: add_highlight(p.runs[0], 'FFFF00')
 
         # Add green institutional advisory lines (Global or Custom Override)
         advisory_to_use = student.custom_advisory.strip() if (student.custom_advisory and student.custom_advisory.strip()) else (GlobalAdvisory.query.first().content if GlobalAdvisory.query.first() else "All students are advised to pay their 2nd-year tuition fees on time through the Viana Portal.\nAdditionally, kindly upload your recent passport-size photograph to your Viana profile at the earliest...")
-        
+
         for adv_line in advisory_to_use.split('\n'):
             if adv_line.strip():
                 p = tf_body.add_paragraph()
@@ -658,7 +731,7 @@ def generate_report():
                 p.font.bold = True
                 if len(p.runs) > 0: add_highlight(p.runs[0], '00FF00')
 
-        # Apply Times New Roman font to all paragraphs in the Guru Padigam notes
+        # Apply Times New Roman font to all paragraphs
         for paragraph in tf_body.paragraphs:
             paragraph.font.name = 'Times New Roman'
             if len(paragraph.runs) > 0:

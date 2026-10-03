@@ -64,6 +64,17 @@
                             <i data-lucide="user-plus" class="w-4 h-4"></i>
                             <span>Add Student</span>
                         </button>
+                        <!-- PPT Grade Toggle -->
+                        <form action="/toggle_grade_ppt" method="POST" style="display:inline;">
+                            <button type="submit"
+                                class="{% if show_grades_in_ppt %}btn-primary !py-2 !px-6 flex items-center space-x-2 text-sm rounded-xl !bg-purple-600 hover:!bg-purple-500{% else %}glass border border-white/10 !py-2 !px-6 flex items-center space-x-2 text-sm rounded-xl hover:bg-white/5 transition{% endif %}">
+                                <i data-lucide="{% if show_grades_in_ppt %}trophy{% else %}file-text{% endif %}"
+                                    class="w-4 h-4"></i>
+                                <span class="hidden md:inline">PPT: {% if show_grades_in_ppt %}<span
+                                        class="text-yellow-300 font-black">Grades ON</span>{% else %}Grades OFF{% endif
+                                    %}</span>
+                            </button>
+                        </form>
                         <a href="/generate_report"
                             class="btn-primary !py-2 !px-6 flex items-center space-x-2 text-sm rounded-xl">
                             <i data-lucide="file-output" class="w-4 h-4"></i>
@@ -153,6 +164,23 @@
                                 <textarea name="custom_advisory" id="edit-modal-custom-advisory"
                                     class="premium-input bg-[#0d1117] border border-emerald-500/30" rows="3"
                                     placeholder="Leave empty to use Global Institutional Advisory"></textarea>
+                            </div>
+                            <div class="border-t border-white/10 pt-4">
+                                <div class="flex justify-between items-center mb-3">
+                                    <label class="block text-[10px] font-bold text-purple-400 uppercase">Subject
+                                        Results</label>
+                                    <button type="button" onclick="addFacultyResultRow()"
+                                        class="text-[10px] text-blue-400 font-bold hover:underline">+ Add
+                                        Subject</button>
+                                </div>
+                                <div class="grid grid-cols-12 gap-2 mb-2 px-1">
+                                    <div class="col-span-7"><span
+                                            class="text-[9px] font-bold text-gray-600 uppercase">Subject</span></div>
+                                    <div class="col-span-3"><span
+                                            class="text-[9px] font-bold text-gray-600 uppercase">Grade</span></div>
+                                    <div class="col-span-2"></div>
+                                </div>
+                                <div id="faculty-results-container" class="space-y-2"></div>
                             </div>
                             <div class="flex space-x-3 pt-4">
                                 <button type="button"
@@ -493,7 +521,48 @@
 
             document.getElementById('edit-faculty-student-form').action = '/edit_student_faculty/' + encodeURIComponent(regNum);
 
+            // Populate results
+            const container = document.getElementById('faculty-results-container');
+            container.innerHTML = '';
+            try {
+                const results = JSON.parse(s.results_data || '[]');
+                results.forEach(r => {
+                    container.appendChild(buildFacultyResultRow(r.subject || '', r.grade || ''));
+                });
+            } catch (e) { }
+
             document.getElementById('edit-faculty-student-modal').classList.remove('hidden');
+        }
+
+        function buildFacultyResultRow(subject, grade) {
+            const row = document.createElement('div');
+            row.className = 'faculty-result-row grid grid-cols-12 gap-2 items-center bg-white/5 p-2 rounded-xl border border-white/5';
+            row.innerHTML = `
+                <div class="col-span-7">
+                    <input type="text" name="result_subject[]" value="${subject}" placeholder="e.g. Mathematics"
+                        class="premium-input bg-[#0d1117] text-xs w-full">
+                </div>
+                <div class="col-span-3">
+                    <input type="text" name="result_grade[]" value="${grade}" placeholder="e.g. A+"
+                        class="premium-input bg-[#0d1117] text-xs w-full">
+                </div>
+                <div class="col-span-2 flex justify-end">
+                    <button type="button" onclick="removeFacultyResultRow(this)" class="text-red-500 hover:text-red-400">
+                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                    </button>
+                </div>
+            `;
+            return row;
+        }
+
+        function addFacultyResultRow() {
+            const container = document.getElementById('faculty-results-container');
+            container.appendChild(buildFacultyResultRow('', ''));
+            lucide.createIcons();
+        }
+
+        function removeFacultyResultRow(btn) {
+            btn.closest('.faculty-result-row').remove();
         }
 
         function showStudentDetails(regNum) {
