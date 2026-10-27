@@ -58,7 +58,7 @@
                         <p class="text-gray-500 text-sm mt-1 uppercase tracking-widest text-[10px] font-bold">Mentor
                             Dashboard</p>
                     </div>
-                    <div class="flex flex-wrap items-center justify-center gap-3">
+                    <div class="flex flex-wrap items-center justify-center gap-3 md:justify-end">
                         <button onclick="document.getElementById('add-student-modal').classList.remove('hidden')"
                             class="btn-primary !py-2 !px-6 flex items-center space-x-2 text-sm rounded-xl !bg-emerald-600 hover:!bg-emerald-500">
                             <i data-lucide="user-plus" class="w-4 h-4"></i>
@@ -470,45 +470,70 @@
                 </div>
             </div>
 
+            <!-- ===================================================== -->
+            <!-- AI MENTOR COMMENT REPORT SECTION                       -->
+            <!-- ===================================================== -->
             <div id="ai-report-section" class="hidden">
                 <header class="mb-8">
                     <div class="flex items-center gap-4 mb-2">
-                        <div class="w-12 h-12 bg-violet-500/10 rounded-xl flex items-center justify-center text-violet-400">
+                        <div
+                            class="w-12 h-12 bg-violet-500/10 rounded-xl flex items-center justify-center text-violet-400">
                             <i data-lucide="bot" class="w-6 h-6"></i>
                         </div>
                         <div>
                             <h1 class="text-2xl font-black font-outfit text-white">AI Mentor Comment Report</h1>
                             <p class="text-gray-500 text-[10px] mt-0.5 uppercase tracking-widest font-bold">
-                                Generate, edit, copy, and export mentor comments</p>
+                                AI-generated, grammar-perfect mentor paragraphs → Word (.docx)</p>
                         </div>
                     </div>
                 </header>
-                <div class="glass p-5 rounded-2xl border border-violet-500/20 bg-violet-500/5 mb-6 flex flex-col md:flex-row items-start md:items-end gap-4">
+
+                <!-- Config bar -->
+                <div
+                    class="glass p-5 rounded-2xl border border-violet-500/20 bg-violet-500/5 mb-6 flex flex-col md:flex-row items-start md:items-center gap-4">
                     <div class="flex-1">
-                        <label for="ai-mentor-name" class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Mentor Name</label>
+                        <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Mentor Name (for
+                            document header)</label>
                         <input type="text" id="ai-mentor-name" value="Mr. V. Ashwin"
                             class="premium-input bg-[#0d1117] max-w-xs text-sm" placeholder="Enter mentor name">
                     </div>
-                    <button id="ai-generate-btn" type="button" onclick="generateCommentReport()"
+                    <button id="ai-generate-btn" onclick="generateCommentReport()"
                         class="btn-primary !py-3 !px-8 flex items-center gap-2 rounded-xl !bg-violet-600 hover:!bg-violet-500 whitespace-nowrap">
                         <i data-lucide="sparkles" class="w-4 h-4"></i>
-                        <span>Generate Comments</span>
+                        <span>Generate AI Comment Report</span>
                     </button>
                 </div>
-                <div id="ai-loading" class="hidden glass rounded-2xl border border-violet-500/20 p-8 text-center text-white">
-                    Generating comments for the mentees...
+
+                <!-- Loading overlay -->
+                <div id="ai-loading" class="hidden">
+                    <div class="glass rounded-2xl border border-violet-500/20 p-12 text-center">
+                        <div
+                            class="inline-block w-12 h-12 rounded-full border-4 border-violet-500/30 border-t-violet-400 animate-spin mb-4">
+                        </div>
+                        <p class="text-white font-bold text-lg" id="ai-loading-text">Generating comments with AI...</p>
+                        <p class="text-gray-500 text-sm mt-1">This may take up to 60 seconds for a large class</p>
+                    </div>
                 </div>
-                <div id="ai-error" role="alert"
-                    class="hidden p-4 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-sm mb-4"></div>
+
+                <!-- Error message -->
+                <div id="ai-error"
+                    class="hidden p-4 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-sm mb-4">
+                </div>
+
+                <!-- Preview area -->
                 <div id="ai-preview-area" class="hidden">
-                    <div class="glass rounded-2xl border border-white/10 p-4 mb-5 flex flex-col md:flex-row items-center justify-between gap-3">
+                    <!-- Summary bar -->
+                    <div
+                        class="glass rounded-2xl border border-white/10 p-4 mb-5 flex flex-col md:flex-row items-center justify-between gap-3">
                         <div id="ai-summary-text" class="text-sm text-gray-300"></div>
-                        <button type="button" onclick="downloadDocx()"
+                        <button onclick="downloadDocx()"
                             class="btn-primary !py-2 !px-6 flex items-center gap-2 rounded-xl !bg-emerald-600 hover:!bg-emerald-500 whitespace-nowrap">
                             <i data-lucide="file-down" class="w-4 h-4"></i>
-                            <span>Download Word (.docx)</span>
+                            <span>Download as Word (.docx)</span>
                         </button>
                     </div>
+
+                    <!-- Student cards -->
                     <div id="ai-cards-container" class="space-y-4"></div>
                 </div>
             </div>
@@ -544,14 +569,268 @@
         const studentsData = {{ students_json | tojson | safe }};
 
         function showSection(id) {
-            ['home', 'advisory', 'observations', 'security', 'ai-report'].forEach(section => {
-                document.getElementById(section + '-section').classList.add('hidden');
+            ['home', 'advisory', 'observations', 'security', 'ai-report'].forEach(s => {
+                document.getElementById(s + '-section').classList.add('hidden');
             });
             document.getElementById(id + '-section').classList.remove('hidden');
 
             document.querySelectorAll('nav a').forEach(a => a.classList.remove('active-icon'));
             const activeLink = document.querySelector(`[onclick="showSection('${id}')"]`);
             if (activeLink) activeLink.classList.add('active-icon');
+        }
+
+        // =========================================================
+        // AI COMMENT REPORT LOGIC
+        // =========================================================
+
+        // Holds the currently generated results
+        let _aiResults = [];
+
+        function renderAiSummary(results) {
+            const lowCount = results.filter(r => r.low_count > 0).length;
+            const eventCount = results.filter(r => r.has_event).length;
+            const fallbackCount = results.filter(r => !r.ai_generated).length;
+            document.getElementById('ai-summary-text').innerHTML =
+                `<span class="font-bold text-white">${results.length}</span> student comments generated &nbsp;·&nbsp; ` +
+                `<span class="text-red-400 font-bold">${lowCount}</span> with low attendance &nbsp;·&nbsp; ` +
+                `<span class="text-emerald-400 font-bold">${eventCount}</span> with event achievements` +
+                (fallbackCount ? ` &nbsp;·&nbsp; <span class="text-amber-400 font-bold">${fallbackCount}</span> used template fallback` : '');
+        }
+
+        function setAiUiState(state, msg) {
+            // state: 'idle' | 'loading' | 'preview' | 'error'
+            document.getElementById('ai-loading').classList.add('hidden');
+            document.getElementById('ai-error').classList.add('hidden');
+            document.getElementById('ai-preview-area').classList.add('hidden');
+            document.getElementById('ai-generate-btn').disabled = false;
+
+            if (state === 'loading') {
+                document.getElementById('ai-loading').classList.remove('hidden');
+                document.getElementById('ai-loading-text').textContent = msg || 'Generating comments with AI...';
+                document.getElementById('ai-generate-btn').disabled = true;
+            } else if (state === 'preview') {
+                document.getElementById('ai-preview-area').classList.remove('hidden');
+            } else if (state === 'error') {
+                const el = document.getElementById('ai-error');
+                el.textContent = msg || 'An error occurred.';
+                el.classList.remove('hidden');
+            }
+        }
+
+        function renderCards(results) {
+            _aiResults = results;
+            const container = document.getElementById('ai-cards-container');
+            container.innerHTML = '';
+
+            renderAiSummary(results);
+
+            results.forEach((r, idx) => {
+                const corrections = r.corrections || [];
+                const corrHtml = corrections.length
+                    ? `<div class="mt-3">
+                        <button type="button" onclick="toggleCorr(${idx})" class="text-[10px] font-bold text-amber-400 hover:underline">
+                            ⚠ ${corrections.length} correction(s) made — click to review
+                        </button>
+                        <div id="corr-${idx}" class="hidden mt-2 space-y-1">
+                            ${corrections.map(c => `
+                                <div class="text-[10px] bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-1.5">
+                                    <span class="text-gray-500">${c.field}:</span>
+                                    <span class="line-through text-red-400 ml-1">${escHtml(c.original)}</span>
+                                    <span class="text-emerald-400 ml-1">→ ${escHtml(c.corrected)}</span>
+                                </div>`).join('')}
+                        </div>
+                    </div>`
+                    : '';
+
+                const lowBadge = r.low_count > 0
+                    ? `<span class="text-[9px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold">Low Attendance</span>`
+                    : `<span class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">Good Attendance</span>`;
+                const evBadge = r.has_event
+                    ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-bold">Event participation</span>`
+                    : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold">No event participation</span>`;
+                const aiStatus = r.ai_generated
+                    ? `<span id="ai-status-${idx}" class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">AI generated</span>`
+                    : `<span id="ai-status-${idx}" class="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold">Template fallback</span>`;
+                const aiWarning = !r.ai_generated && r.ai_warning
+                    ? escHtml(r.ai_warning)
+                    : '';
+
+                const card = document.createElement('div');
+                card.id = `ai-card-${idx}`;
+                card.className = 'glass rounded-2xl border border-white/10 p-5';
+                card.innerHTML = `
+                    <div class="flex items-start justify-between gap-4 mb-3">
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h3 class="text-white font-bold">${escHtml(r.name)}</h3>
+                                <span class="text-[10px] font-mono text-gray-500">${escHtml(r.reg_no)}</span>
+                                ${lowBadge} ${evBadge}
+                                ${aiStatus}
+                            </div>
+                            <p id="ai-warning-${idx}" class="text-amber-300 text-xs mt-2 ${aiWarning ? '' : 'hidden'}">${aiWarning}</p>
+                            ${corrHtml}
+                        </div>
+                        <button onclick="regenerateOne('${escHtml(r.reg_no)}', ${idx})"
+                            id="regen-btn-${idx}"
+                            class="glass border border-violet-500/30 text-violet-400 hover:bg-violet-500/10 transition text-[10px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap flex items-center gap-1">
+                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Regenerate
+                        </button>
+                    </div>
+                    <textarea id="comment-ta-${idx}" rows="5"
+                        class="premium-input bg-[#0d1117] text-sm leading-relaxed w-full resize-y font-normal"
+                        style="min-height:100px">${escHtml(r.comment)}</textarea>
+                    <div class="flex justify-end mt-2">
+                        <button type="button" onclick="copyStudentComment(${idx})"
+                            id="copy-comment-btn-${idx}"
+                            class="glass border border-white/10 text-gray-300 hover:text-white hover:border-violet-500/40 transition text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                            <i data-lucide="copy" class="w-4 h-4"></i> Copy comment
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        function toggleCorr(idx) {
+            const el = document.getElementById(`corr-${idx}`);
+            if (el) el.classList.toggle('hidden');
+        }
+
+        function escHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        async function copyStudentComment(idx) {
+            const comment = document.getElementById(`comment-ta-${idx}`);
+            const button = document.getElementById(`copy-comment-btn-${idx}`);
+            if (!comment || !button) return;
+
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(comment.value);
+                } else {
+                    const copyField = document.createElement('textarea');
+                    copyField.value = comment.value;
+                    copyField.style.position = 'fixed';
+                    copyField.style.opacity = '0';
+                    document.body.appendChild(copyField);
+                    copyField.select();
+                    const copied = document.execCommand('copy');
+                    copyField.remove();
+                    if (!copied) throw new Error('Clipboard access is unavailable.');
+                }
+
+                button.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Copied';
+                lucide.createIcons();
+                window.setTimeout(() => {
+                    button.innerHTML = '<i data-lucide="copy" class="w-4 h-4"></i> Copy comment';
+                    lucide.createIcons();
+                }, 1800);
+            } catch (error) {
+                alert(`Could not copy the comment: ${error.message}`);
+            }
+        }
+
+        async function generateCommentReport() {
+            setAiUiState('loading', 'Generating AI comments for all students...');
+            try {
+                const res = await fetch('/generate_comment_report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || `Server error ${res.status}`);
+                }
+                const results = await res.json();
+                renderCards(results);
+                setAiUiState('preview');
+            } catch (e) {
+                setAiUiState('error', 'Failed to generate report: ' + e.message);
+            }
+        }
+
+        async function regenerateOne(regNo, idx) {
+            const btn = document.getElementById(`regen-btn-${idx}`);
+            const ta = document.getElementById(`comment-ta-${idx}`);
+            if (btn) { btn.disabled = true; btn.textContent = '...'; }
+            try {
+                const res = await fetch('/generate_comment_report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reg_nos: [regNo] })
+                });
+                if (!res.ok) throw new Error(`Server error ${res.status}`);
+                const results = await res.json();
+                if (results.length > 0 && ta) {
+                    const updated = results[0];
+                    ta.value = updated.comment;
+                    // Update stored result
+                    const existing = _aiResults.findIndex(r => r.reg_no === regNo);
+                    if (existing >= 0) _aiResults[existing] = { ..._aiResults[existing], ...updated };
+                    const status = document.getElementById(`ai-status-${idx}`);
+                    if (status) {
+                        status.textContent = updated.ai_generated ? 'AI generated' : 'Template fallback';
+                        status.className = updated.ai_generated
+                            ? 'text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold'
+                            : 'text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold';
+                    }
+                    const warning = document.getElementById(`ai-warning-${idx}`);
+                    if (warning) {
+                        warning.textContent = updated.ai_warning || '';
+                        warning.classList.toggle('hidden', Boolean(updated.ai_generated || !updated.ai_warning));
+                    }
+                    renderAiSummary(_aiResults);
+                }
+            } catch (e) {
+                alert('Regeneration failed: ' + e.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Regenerate';
+                    lucide.createIcons();
+                }
+            }
+        }
+
+        async function downloadDocx() {
+            // Collect all current textarea values
+            const mentorName = document.getElementById('ai-mentor-name').value.trim() || 'Mr. V. Ashwin';
+            const comments = _aiResults.map((r, idx) => ({
+                reg_no: r.reg_no,
+                name: r.name,
+                comment: (document.getElementById(`comment-ta-${idx}`) || {}).value || r.comment,
+                low_count: r.low_count,
+                has_event: r.has_event,
+            }));
+
+            if (!comments.length) { alert('No comments to download. Please generate report first.'); return; }
+
+            try {
+                const res = await fetch('/download_comment_report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mentor_name: mentorName, comments })
+                });
+                if (!res.ok) throw new Error(`Server error ${res.status}`);
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'Mentor_Comment_Report.docx';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+            } catch (e) {
+                alert('Download failed: ' + e.message);
+            }
         }
 
         function openEditModal(regNum) {
@@ -687,7 +966,6 @@
             });
         });
     </script>
-    <script src="{{ url_for('static', filename='ai_report.js') }}"></script>
 </body>
 
 </html>

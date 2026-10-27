@@ -10,6 +10,7 @@ gunicorn
 cloudinary
 psycopg2-binary
 pytz
-python-docx
 google-generativeai
+python-docx
 openai
+python-dotenv
