@@ -80,6 +80,11 @@
                             <i data-lucide="file-output" class="w-4 h-4"></i>
                             <span>Generate PPT</span>
                         </a>
+                        <button type="button" onclick="showSection('ai-report')"
+                            class="btn-primary !py-2 !px-6 flex items-center space-x-2 text-sm rounded-xl !bg-violet-600 hover:!bg-violet-500">
+                            <i data-lucide="bot" class="w-4 h-4"></i>
+                            <span class="hidden md:inline">AI Comment Report</span>
+                        </button>
                         <button type="button"
                             onclick="document.getElementById('clear-data-modal').classList.remove('hidden')"
                             class="glass border border-red-500/20 !py-2 !px-6 flex items-center space-x-2 text-sm rounded-xl hover:bg-red-500/10 transition text-red-400">
@@ -465,6 +470,49 @@
                 </div>
             </div>
 
+            <div id="ai-report-section" class="hidden">
+                <header class="mb-8">
+                    <div class="flex items-center gap-4 mb-2">
+                        <div class="w-12 h-12 bg-violet-500/10 rounded-xl flex items-center justify-center text-violet-400">
+                            <i data-lucide="bot" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-black font-outfit text-white">AI Mentor Comment Report</h1>
+                            <p class="text-gray-500 text-[10px] mt-0.5 uppercase tracking-widest font-bold">
+                                Generate, edit, copy, and export mentor comments</p>
+                        </div>
+                    </div>
+                </header>
+                <div class="glass p-5 rounded-2xl border border-violet-500/20 bg-violet-500/5 mb-6 flex flex-col md:flex-row items-start md:items-end gap-4">
+                    <div class="flex-1">
+                        <label for="ai-mentor-name" class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Mentor Name</label>
+                        <input type="text" id="ai-mentor-name" value="Mr. V. Ashwin"
+                            class="premium-input bg-[#0d1117] max-w-xs text-sm" placeholder="Enter mentor name">
+                    </div>
+                    <button id="ai-generate-btn" type="button" onclick="generateCommentReport()"
+                        class="btn-primary !py-3 !px-8 flex items-center gap-2 rounded-xl !bg-violet-600 hover:!bg-violet-500 whitespace-nowrap">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        <span>Generate Comments</span>
+                    </button>
+                </div>
+                <div id="ai-loading" class="hidden glass rounded-2xl border border-violet-500/20 p-8 text-center text-white">
+                    Generating comments for the mentees...
+                </div>
+                <div id="ai-error" role="alert"
+                    class="hidden p-4 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 text-sm mb-4"></div>
+                <div id="ai-preview-area" class="hidden">
+                    <div class="glass rounded-2xl border border-white/10 p-4 mb-5 flex flex-col md:flex-row items-center justify-between gap-3">
+                        <div id="ai-summary-text" class="text-sm text-gray-300"></div>
+                        <button type="button" onclick="downloadDocx()"
+                            class="btn-primary !py-2 !px-6 flex items-center gap-2 rounded-xl !bg-emerald-600 hover:!bg-emerald-500 whitespace-nowrap">
+                            <i data-lucide="file-down" class="w-4 h-4"></i>
+                            <span>Download Word (.docx)</span>
+                        </button>
+                    </div>
+                    <div id="ai-cards-container" class="space-y-4"></div>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -496,10 +544,9 @@
         const studentsData = {{ students_json | tojson | safe }};
 
         function showSection(id) {
-            document.getElementById('home-section').classList.add('hidden');
-            document.getElementById('advisory-section').classList.add('hidden');
-            document.getElementById('observations-section').classList.add('hidden');
-            document.getElementById('security-section').classList.add('hidden');
+            ['home', 'advisory', 'observations', 'security', 'ai-report'].forEach(section => {
+                document.getElementById(section + '-section').classList.add('hidden');
+            });
             document.getElementById(id + '-section').classList.remove('hidden');
 
             document.querySelectorAll('nav a').forEach(a => a.classList.remove('active-icon'));
@@ -640,6 +687,7 @@
             });
         });
     </script>
+    <script src="{{ url_for('static', filename='ai_report.js') }}"></script>
 </body>
 
 </html>
