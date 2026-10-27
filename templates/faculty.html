@@ -739,21 +739,54 @@
 
         async function generateCommentReport() {
             setAiUiState('loading', 'Generating AI comments for all students...');
+            const regNos = studentsData
+                .map(student => String(student.reg_num || '').trim())
+                .filter(Boolean);
+            const batchSize = 1;
+            const studentPauseMs = 5000;
+            const results = [];
+
             try {
-                const res = await fetch('/generate_comment_report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.error || `Server error ${res.status}`);
+                if (!regNos.length) {
+                    throw new Error('No students are available to generate comments for.');
                 }
-                const results = await res.json();
+
+                for (let start = 0; start < regNos.length; start += batchSize) {
+                    const batch = regNos.slice(start, start + batchSize);
+                    document.getElementById('ai-loading-text').textContent =
+                        `Generating comment for student ${start + 1} of ${regNos.length}...`;
+                    const res = await fetch('/generate_comment_report', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reg_nos: batch })
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.error || `Server error ${res.status}`);
+                    }
+                    results.push(...await res.json());
+
+                    if (start + batchSize < regNos.length) {
+                        document.getElementById('ai-loading-text').textContent =
+                            `Student ${start + 1} complete. Waiting 5 seconds before the next student...`;
+                        await new Promise(resolve => window.setTimeout(resolve, studentPauseMs));
+                    }
+                }
+
+                results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 renderCards(results);
                 setAiUiState('preview');
             } catch (e) {
-                setAiUiState('error', 'Failed to generate report: ' + e.message);
+                if (results.length) {
+                    results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                    renderCards(results);
+                    setAiUiState('preview');
+                    const error = document.getElementById('ai-error');
+                    error.textContent = `Generated ${results.length} of ${regNos.length} comments. Failed to generate the rest: ${e.message}`;
+                    error.classList.remove('hidden');
+                } else {
+                    setAiUiState('error', 'Failed to generate report: ' + e.message);
+                }
             }
         }
 

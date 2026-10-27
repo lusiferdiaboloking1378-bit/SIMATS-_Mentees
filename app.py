@@ -100,7 +100,11 @@ elif PROVIDER in {"openai", "groq"}:
             client_options = {"api_key": API_KEY}
             if PROVIDER == "groq":
                 client_options["base_url"] = "https://api.groq.com/openai/v1"
-            _chat_client = openai.OpenAI(**client_options)
+            _chat_client = openai.OpenAI(
+                **client_options,
+                timeout=20.0,
+                max_retries=0,
+            )
             AI_PROVIDER_AVAILABLE = True
         except Exception as exc:
             print(f"[AI Report] {PROVIDER.title()} not available: {exc}")
@@ -1069,7 +1073,10 @@ def _call_model(payload):
 
     # ---- Dispatch ---------------------------------------------------------------
     if PROVIDER == "gemini":
-        response = _gemini_model.generate_content(prompt)
+        response = _gemini_model.generate_content(
+            prompt,
+            request_options={"timeout": 20},
+        )
         raw = response.text.strip()
     elif PROVIDER in {"openai", "groq"}:
         system_msg = (
