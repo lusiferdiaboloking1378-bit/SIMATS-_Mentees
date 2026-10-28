@@ -29,11 +29,14 @@ from pptx.oxml.xmlchemy import OxmlElement
 # --- Dynamic model selection -------------------------------------------------
 
 _GEMINI_SYSTEM_INSTRUCTION = (
-    "You are a caring, professional college mentor writing an individualized student progress comment. "
-    "Use the supplied reference style: begin with the student's name, describe attendance with exact subject "
-    "names and percentages, acknowledge stronger subjects when relevant, address event participation and "
-    "online-course status, and close with sincere encouragement. Use only supplied facts; never invent "
-    "achievements, grades, risks, family circumstances, or actions. Do not copy private remarks verbatim. "
+    "Write as the student's own college mentor, giving warm, candid feedback directly to the student. "
+    "Make it sound like a person who has reviewed the student's progress, not an AI, report, checklist, or data summary. "
+    "Address the student naturally by name, use a conversational but professional voice, and combine relevant details "
+    "into a few flowing sentences instead of itemizing categories. Avoid phrases such as 'the report records', "
+    "'the supplied data', or 'the student has'. Mention attendance with exact low-attendance subject names and "
+    "percentages, acknowledge stronger attendance when useful, and naturally incorporate relevant remarks, faculty "
+    "guidance, event participation, online learning, and enabled grades. Acknowledge a private student remark with "
+    "care without quoting it. Use only provided facts; never invent achievements, grades, risks, circumstances, or actions. "
     "Write one natural paragraph without headings or bullets and return only a JSON object with "
     '"reg_no" and "comment" fields.'
 )
@@ -1081,11 +1084,13 @@ def _call_model(payload):
         "Reflect the faculty advisory naturally; use the faculty global observation only as relevant guidance.",
         "Never invent grades, events, subjects, percentages, courses, or personal circumstances.",
         "Do not present private student remarks or faculty notices as unrelated invented facts.",
+        "Write directly to the student in a natural mentor's voice. Do not mention AI, a report, supplied data, records, "
+        "or a checklist, and do not list each fact in a separate formulaic sentence.",
     ]
     if payload.get('grades'):
         grades_txt = ', '.join(f"{g['subject']} ({g['grade']})" for g in payload['grades'])
         extra_parts.append(
-            f"The student has the following grades that MUST be woven naturally into the comment: {grades_txt}."
+            f"If relevant, mention these grades naturally in the mentor's feedback: {grades_txt}."
         )
     remark = (payload.get('student_remark') or '').strip()
     if remark:
@@ -1115,28 +1120,31 @@ def _call_model(payload):
         raw = response.text.strip()
     elif PROVIDER in {"openai", "groq"}:
         system_msg = (
-            "You are a college mentor writing one individualized comment for a semester mentor report. "
-            "Use the student's full name. Build the emphasis around this student's unique combination of attendance, "
-            "student remark, faculty advisory, faculty global observation, event, online course, and grades when supplied. "
-            "Give the paragraph a visibly individualized structure: vary the opening and transitions where appropriate, "
-            "avoid reusing a stock template phrase, and finish with encouragement personalized to the supplied facts. "
-            "Write one natural paragraph of approximately 90 to 150 words.\n"
+            "You are the student's college mentor, writing directly to them in your own warm, thoughtful, professional "
+            "voice. This is personal feedback from a mentor about the student's progress, not text about an AI, report, "
+            "dataset, or checklist. Address the student naturally by their full name; use 'you' and 'your' where natural. "
+            "Sound genuine and specific, with flowing sentences rather than a sequence of labeled facts. Do not use "
+            "phrases like 'the report records', 'the supplied data', 'according to the record', or 'the student has'. "
+            "Avoid generic, overly polished, repetitive, or formulaic language. Vary openings, transitions, emphasis, "
+            "and the final encouragement to fit this student's actual circumstances. Write one natural paragraph of "
+            "approximately 90 to 150 words.\n"
             "Rules:\n"
             "1. Mention low attendance only for subjects below 80%, with exact subject names and percentages. "
-            "If multiple subjects are low, identify each and recommend attending upcoming classes. Do not claim "
+            "If multiple subjects are low, mention each naturally and encourage attending upcoming classes. Do not claim "
             "detention risk, parent meetings, or other consequences unless explicitly provided.\n"
-            "2. If there are no low-attendance subjects, say attendance is consistent; if some subjects are good, "
-            "acknowledge them without implying that all are good.\n"
-            "3. If event details are supplied, describe only the recorded participation or achievement. If none are "
-            "supplied, say no event participation was recorded and encourage a suitable future opportunity.\n"
-            "4. Mention online-course participation only when the supplied facts support it; if blank, say no course "
-            "was recorded and encourage one where appropriate.\n"
+            "2. If there are no low-attendance subjects, acknowledge the positive attendance naturally; if some subjects "
+            "are stronger than others, do not imply that all are good.\n"
+            "3. If event details are supplied, describe only that participation or achievement. If none are supplied, "
+            "do not announce an absence as a report finding; simply encourage a suitable future opportunity when it fits.\n"
+            "4. Mention an online course only when one is supplied. If none is supplied, do not say that the report "
+            "or records show no course; a gentle suggestion is optional only when it fits the student's feedback.\n"
             "5. Acknowledge the student remark sensitively without copying it verbatim. Reflect the faculty advisory "
             "naturally, and use the faculty global observation only as relevant guidance.\n"
             "6. Weave provided grades naturally. Never invent grades, events, subjects, percentages, courses, "
             "achievements, or personal circumstances. Do not present private student remarks or faculty notices "
             "as unrelated invented facts.\n"
-            "7. Use a sincere mentor voice, vary sentence structure, and close with specific encouragement. "
+            "7. Do not force every available detail into a checklist. Prioritize what matters for this student, "
+            "vary sentence structure, and close with sincere, specific encouragement. "
             "Output no headings, bullets, or quotation marks. Silently correct spelling and grammar.\n"
             "Return ONLY a JSON object: {\"reg_no\": \"...\", \"comment\": \"...\"}"
         )
@@ -1207,16 +1215,16 @@ def fallback_comment(payload):
             for subject in low
         )
         att_sentence = choose('attendance-low', (
-            "{name}'s attendance needs attention, particularly attendance in {details}.",
-            "A point to strengthen for {name} is attendance in {details}.",
-            "{name} should focus on improving attendance, especially in {details}.",
-            "The attendance record for {name} calls for attention in {details}.",
-        ), name=name, details=low_details)
+            "{name}, I am concerned about your attendance in {details}; attending regularly from now on will help you improve.",
+            "{name}, please give extra attention to your attendance in {details} and make every effort to attend upcoming classes.",
+            "{name}, I would like you to focus on improving your attendance in {details}; consistent attendance will help you catch up.",
+            "{name}, your attendance in {details} needs improvement, so let us make regular attendance a priority.",
+        ), name=name, first=first, details=low_details)
         att_followup = choose('attendance-followup', (
-            "Regular attendance in the coming classes should help {first} improve this concern.",
-            "Attending each upcoming class can help {first} make steady progress in these subjects.",
-            "A consistent presence in future classes will give {first} a practical path to improve.",
-            "With regular attendance from this point forward, {first} can work toward stronger results.",
+            "I believe you can make steady progress by being present in each upcoming class.",
+            "Please make a fresh start with the next class and keep that routine going.",
+            "I am confident that a consistent effort to attend will help you improve.",
+            "Let us work toward a stronger attendance pattern over the coming weeks.",
         ), first=first)
     elif attendance:
         attendance_details = ', '.join(
@@ -1224,19 +1232,19 @@ def fallback_comment(payload):
             for subject in attendance
         )
         att_sentence = choose('attendance-regular', (
-            "{name} has regular attendance in the recorded subjects: {details}.",
-            "Attendance is regular for {name} across the supplied records: {details}.",
-            "The supplied attendance record for {name} shows no subject below 80%: {details}.",
-            "{name}'s attendance record shows steady participation in these subjects: {details}.",
-        ), name=name, details=attendance_details)
+            "{name}, you are maintaining good attendance in {details}; please keep it up.",
+            "I am pleased with your attendance in {details}, {name}. Continue with the same consistency.",
+            "You have kept your attendance above the concern level in {details}, {name}, which is a good habit to maintain.",
+            "{name}, your attendance in {details} is on track. Keep showing up regularly.",
+        ), name=name, first=first, details=attendance_details)
         att_followup = ''
     else:
         att_sentence = choose('attendance-missing', (
-            "No attendance percentages were supplied for {name} in this report.",
-            "This report does not include attendance percentages for {name}.",
-            "There are no attendance figures supplied here for {name}.",
-            "Attendance percentages are not available in the supplied report for {name}.",
-        ), name=name)
+            "{name}, I do not have attendance details to comment on, but please continue attending your classes regularly.",
+            "{name}, I cannot assess your attendance from the information available; please keep regular attendance a priority.",
+            "{name}, let us keep a steady attendance routine while I review your other progress.",
+            "{name}, please continue to attend classes regularly; I do not have attendance details to review.",
+        ), name=name, first=first)
         att_followup = ''
 
     sentences = [att_sentence]
@@ -1244,64 +1252,64 @@ def fallback_comment(payload):
         sentences.append(att_followup)
     if remark:
         sentences.append(choose('remark', (
-            "I have taken note of the personal remark you shared: {remark}.",
-            "Your personal note, {remark}, has been received and considered sensitively.",
-            "I appreciate you sharing this personal context: {remark}.",
-            "I have considered your remark, {remark}, with care.",
-        ), remark=remark))
+            "I understand that you have been managing a personal situation, and I appreciate you letting me know.",
+            "Thank you for sharing what has been going on; I have kept it in mind while considering your progress.",
+            "I understand your personal circumstances and appreciate your openness with me.",
+            "I have taken your personal circumstances into account, and I hope things become easier for you.",
+        )))
     advisory = (payload.get('faculty_advisory') or '').strip()
     if advisory:
         sentences.append(choose('advisory', (
-            "The applicable {institution} advisory is: {advisory}.",
-            "Please also keep in mind this faculty advisory from {institution}: {advisory}.",
-            "The faculty guidance for {institution} is: {advisory}.",
-            "In addition, the relevant {institution} advisory asks: {advisory}.",
-        ), institution=payload.get('institution') or 'the institution', advisory=advisory))
+            "Please also keep this in mind: {advisory}.",
+            "One more thing I would like you to remember is this: {advisory}.",
+            "Please make sure you follow this guidance as well: {advisory}.",
+            "I would also like you to keep this guidance in mind: {advisory}.",
+        ), advisory=advisory))
     observation = (payload.get('faculty_observation') or '').strip()
     if observation:
         sentences.append(choose('observation', (
-            "As broader guidance, the mentor observation is: {observation}.",
-            "The faculty's general observation offers this guidance: {observation}.",
-            "The mentor's global observation is relevant as guidance: {observation}.",
-            "The following broader mentor observation may guide next steps: {observation}.",
+            "I would also like you to keep this guidance in mind: {observation}.",
+            "Going forward, please remember this advice: {observation}.",
+            "As your mentor, I hope you will keep this in mind: {observation}.",
+            "This is worth remembering as you plan your next steps: {observation}.",
         ), observation=observation))
     if event:
         sentences.append(choose('event', (
-            "{first}'s recorded event participation is {event}.",
-            "The report records {first}'s participation in {event}.",
-            "{first} has the following event participation on record: {event}.",
-            "Recorded event involvement for {first} includes {event}.",
+            "I was glad to see you take part in {event}.",
+            "Your participation in {event} was a positive step, {first}.",
+            "It was good to see you involved in {event}.",
+            "I appreciate your participation in {event}, {first}.",
         ), first=first, event=event))
     else:
         sentences.append(choose('future-event', (
-            "A future academic or technical event could offer {first} another opportunity to participate.",
-            "{first} is encouraged to consider a suitable upcoming event when one is available.",
-            "Taking part in a future event may give {first} a new way to engage with campus activities.",
-            "When an appropriate event is announced, {first} could consider joining it.",
+            "I hope you will consider joining a suitable academic or technical event when you get the chance.",
+            "I would be glad to see you take part in a future campus event that interests you.",
+            "When an event catches your interest, do consider getting involved, {first}.",
+            "I encourage you to look out for a future event where you can explore your interests.",
         ), first=first))
     if online:
         sentences.append(choose('online-course', (
-            "The recorded online course is {course}.",
-            "{first} also has {course} listed as an online course.",
-            "The online course recorded for {first} is {course}.",
-            "{first}'s supplied online-course information lists {course}.",
+            "I am glad you are working through {course} alongside your classes.",
+            "Your work on {course} shows initiative beyond the classroom.",
+            "It is good to see you making time for {course}, {first}.",
+            "Keep building on what you are learning in {course}.",
         ), first=first, course=online))
     if payload.get('grades'):
         grades_list = ', '.join(
-            f"{grade.get('subject', '')} ({grade.get('grade', '')})"
+            f"{grade.get('grade', '')} in {grade.get('subject', '')}"
             for grade in payload['grades']
         )
         sentences.append(choose('grades', (
-            "The supplied grades are {grades}.",
-            "Grades recorded for {first} are {grades}.",
-            "The grade information provided for {first} lists {grades}.",
-            "The report includes these grades for {first}: {grades}.",
+            "You earned {grades}, {first}; keep working steadily on your subjects.",
+            "I have noted your results: {grades}. Keep building on this progress, {first}.",
+            "Your results include {grades}; continue to put in consistent effort.",
+            "You have {grades} in the subjects noted, {first}. Keep aiming to improve.",
         ), first=first, grades=grades_list))
     sentences.append(choose('encouragement', (
-        "Keep building on these next steps, {first}; steady effort can support continued progress.",
-        "{first}, continue with a focused and consistent approach to the goals ahead.",
-        "I encourage {first} to keep moving forward with confidence and steady effort.",
-        "With continued commitment, {first} can make meaningful progress from here.",
+        "I know you can keep improving, {first}, and I am here to support you.",
+        "Keep putting in the effort, {first}; you have my support as you work toward your goals.",
+        "I look forward to seeing your continued progress, {first}. Keep going.",
+        "Stay focused and keep at it, {first}; I believe you can do well.",
     ), first=first))
     return ' '.join(sentence.strip() for sentence in sentences if sentence.strip())
 
