@@ -1343,6 +1343,7 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
     comment = None
     ai_generated = False
     ai_warning = None
+    first_error = None
     if AI_PROVIDER_AVAILABLE:
         for attempt in range(2):
             try:
@@ -1361,6 +1362,7 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
                 else:
                     print(f"[AI Report] Retry failed for {student.reg_num}: {error}")
                     ai_warning = "AI generation failed after retry."
+                comment = None
     else:
         ai_warning = f"{PROVIDER} is unavailable. Check the configured API key and server dependencies."
 
