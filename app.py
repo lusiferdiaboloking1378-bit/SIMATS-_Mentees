@@ -82,6 +82,8 @@ AI_PROVIDER_AVAILABLE = False
 _gemini_model = None
 _chat_client = None
 _groq_generation_lock = threading.Lock()
+_ai_comment_registry_lock = threading.Lock()
+_recent_ai_comments = []
 _GROQ_MIN_REQUEST_INTERVAL_SECONDS = 5.5
 _groq_last_request_at = None
 
@@ -1077,7 +1079,11 @@ def _build_ai_payload(student, show_grades=False, faculty_context=None):
     return payload, corrections
 
 
-def _call_model(payload):
+def _normalise_ai_comment(comment):
+    return re.sub(r'[^a-z0-9]+', ' ', comment.lower()).strip()
+
+
+def _call_model(payload, avoid_comments=None):
     """Unified LLM call – works with Gemini, OpenAI, or Groq.
     Builds the prompt (including grades & remark) and returns the comment.
     """
@@ -1111,6 +1117,12 @@ def _call_model(payload):
         extra_parts.append(
             "Use this global faculty observation only where it is relevant guidance, not as a student-specific fact: "
             f"'{payload['faculty_observation']}'."
+        )
+    avoid_comments = avoid_comments or []
+    if avoid_comments:
+        extra_parts.append(
+            "Produce a different opening, emphasis, and final encouragement than these previously generated comments: "
+            + " | ".join(f"'{comment}'" for comment in avoid_comments[-12:])
         )
     extra = ("\n" + " ".join(extra_parts)) if extra_parts else ""
     prompt = f"Input: {json.dumps(payload, ensure_ascii=False)}{extra}"
@@ -1321,7 +1333,7 @@ def fallback_comment(payload):
     return ' '.join(sentence.strip() for sentence in sentences if sentence.strip())
 
 
-def _validate_ai_comment(comment, payload):
+def _validate_ai_comment(comment, payload, previous_comments=None):
     if not comment:
         raise ValueError("The AI provider returned an empty comment.")
     full_name = (payload.get('name') or '').strip()
@@ -1335,6 +1347,13 @@ def _validate_ai_comment(comment, payload):
         expected_percent = f"{percent:g}" if isinstance(percent, (float, int)) else str(percent)
         if percent >= 0 and f"{expected_percent}%" not in comment:
             raise ValueError(f"Comment missing percentage for: {name}")
+
+    normalised = _normalise_ai_comment(comment)
+    if normalised in {
+        _normalise_ai_comment(previous)
+        for previous in (previous_comments or [])
+    }:
+        raise ValueError("Comment repeats a previously generated student comment.")
 
 
 def _is_rate_limit_error(error):
@@ -1360,6 +1379,18 @@ def _wait_for_groq_request_slot():
         if remaining > 0:
             time.sleep(remaining)
     _groq_last_request_at = time.monotonic()
+
+
+def _get_recent_ai_comments():
+    with _ai_comment_registry_lock:
+        return list(_recent_ai_comments)
+
+
+def _register_ai_comment(comment):
+    with _ai_comment_registry_lock:
+        _recent_ai_comments.append(comment)
+        if len(_recent_ai_comments) > 50:
+            del _recent_ai_comments[:-50]
 
 
 def _generate_for_one(student, show_grades=False, faculty_context=None):
@@ -1394,8 +1425,9 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
                         time.sleep(retry_delay + 0.25)
                     if PROVIDER == "groq":
                         _wait_for_groq_request_slot()
-                    comment = _call_model(payload)
-                    _validate_ai_comment(comment, payload)
+                    comment = _call_model(payload, avoid_comments=_get_recent_ai_comments())
+                    _validate_ai_comment(comment, payload, _get_recent_ai_comments())
+                    _register_ai_comment(comment)
                     ai_generated = True
                     break
                 except Exception as error:
