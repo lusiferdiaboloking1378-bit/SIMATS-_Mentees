@@ -82,6 +82,8 @@ AI_PROVIDER_AVAILABLE = False
 _gemini_model = None
 _chat_client = None
 _groq_generation_lock = threading.Lock()
+_GROQ_MIN_REQUEST_INTERVAL_SECONDS = 12
+_groq_last_request_at = None
 
 if PROVIDER == "gemini":
     if API_KEY:
@@ -1349,6 +1351,17 @@ def _rate_limit_retry_delay(error):
     return float(match.group(1)) if match else None
 
 
+def _wait_for_groq_request_slot():
+    """Space Groq request starts to keep token use within the observed TPM budget."""
+    global _groq_last_request_at
+    now = time.monotonic()
+    if _groq_last_request_at is not None:
+        remaining = _GROQ_MIN_REQUEST_INTERVAL_SECONDS - (now - _groq_last_request_at)
+        if remaining > 0:
+            time.sleep(remaining)
+    _groq_last_request_at = time.monotonic()
+
+
 def _generate_for_one(student, show_grades=False, faculty_context=None):
     """Generate comment for a single student. Returns result dict."""
     payload, corrections = _build_ai_payload(
@@ -1379,6 +1392,8 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
                             ai_warning = "Groq rate limit retry delay exceeded the request budget."
                             break
                         time.sleep(retry_delay + 0.25)
+                    if PROVIDER == "groq":
+                        _wait_for_groq_request_slot()
                     comment = _call_model(payload)
                     _validate_ai_comment(comment, payload)
                     ai_generated = True
