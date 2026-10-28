@@ -7,6 +7,7 @@ import re
 import io
 import time
 import hashlib
+import threading
 import urllib.request
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -80,6 +81,7 @@ PROVIDER, MODEL_NAME, API_KEY = _get_model_choice()
 AI_PROVIDER_AVAILABLE = False
 _gemini_model = None
 _chat_client = None
+_groq_generation_lock = threading.Lock()
 
 if PROVIDER == "gemini":
     if API_KEY:
@@ -1130,7 +1132,9 @@ def _call_model(payload):
             "approximately 90 to 150 words.\n"
             "Rules:\n"
             "1. Mention low attendance only for subjects below 80%, with exact subject names and percentages. "
-            "If multiple subjects are low, mention each naturally and encourage attending upcoming classes. Do not claim "
+            "Copy each low-attendance subject name exactly as written in the input, including any slot prefix, and "
+            "include its exact percentage with the percent sign. If multiple subjects are low, mention each naturally "
+            "and encourage attending upcoming classes. Do not claim "
             "detention risk, parent meetings, or other consequences unless explicitly provided.\n"
             "2. If there are no low-attendance subjects, acknowledge the positive attendance naturally; if some subjects "
             "are stronger than others, do not imply that all are good.\n"
@@ -1154,6 +1158,7 @@ def _call_model(payload):
                 'temperature': 0.85,
                 'presence_penalty': 0.35,
                 'frequency_penalty': 0.25,
+                'max_completion_tokens': 350,
             })
         resp = _chat_client.chat.completions.create(
             model=MODEL_NAME,
@@ -1336,7 +1341,11 @@ def _is_rate_limit_error(error):
 
 
 def _rate_limit_retry_delay(error):
-    match = re.search(r'please retry in\s+([0-9]+(?:\.[0-9]+)?)\s*seconds?', str(error), re.IGNORECASE)
+    match = re.search(
+        r'please\s+(?:try again|retry)\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*(?:seconds?|s)\b',
+        str(error),
+        re.IGNORECASE,
+    )
     return float(match.group(1)) if match else None
 
 
@@ -1353,24 +1362,42 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
     ai_warning = None
     first_error = None
     if AI_PROVIDER_AVAILABLE:
-        for attempt in range(2):
-            try:
-                if attempt and first_error and _is_rate_limit_error(first_error):
-                    retry_delay = _rate_limit_retry_delay(first_error)
-                    if retry_delay is not None and retry_delay <= 5:
+        def generate_with_retry():
+            nonlocal ai_generated, ai_warning, comment, first_error
+
+            for attempt in range(2):
+                try:
+                    if attempt and first_error and _is_rate_limit_error(first_error):
+                        retry_delay = _rate_limit_retry_delay(first_error)
+                        if retry_delay is None:
+                            retry_delay = 2
+                        if retry_delay > 30:
+                            print(
+                                f"[AI Report] Retry delay for {student.reg_num} exceeds "
+                                "the request budget; using fallback."
+                            )
+                            ai_warning = "Groq rate limit retry delay exceeded the request budget."
+                            break
                         time.sleep(retry_delay + 0.25)
-                comment = _call_model(payload)
-                _validate_ai_comment(comment, payload)
-                ai_generated = True
-                break
-            except Exception as error:
-                if attempt == 0:
-                    first_error = error
-                    print(f"[AI Report] First attempt failed for {student.reg_num}: {error}")
-                else:
-                    print(f"[AI Report] Retry failed for {student.reg_num}: {error}")
-                    ai_warning = "AI generation failed after retry."
-                comment = None
+                    comment = _call_model(payload)
+                    _validate_ai_comment(comment, payload)
+                    ai_generated = True
+                    break
+                except Exception as error:
+                    if attempt == 0:
+                        first_error = error
+                        print(f"[AI Report] First attempt failed for {student.reg_num}: {error}")
+                    else:
+                        print(f"[AI Report] Retry failed for {student.reg_num}: {error}")
+                        ai_warning = "AI generation failed after retry."
+                    comment = None
+
+        if PROVIDER == "groq":
+            # Serialize Groq requests across report requests in this app process.
+            with _groq_generation_lock:
+                generate_with_retry()
+        else:
+            generate_with_retry()
     else:
         ai_warning = f"{PROVIDER} is unavailable. Check the configured API key and server dependencies."
 
@@ -1436,8 +1463,8 @@ def generate_comment_report():
     }
 
     results = []
-    # Keep Gemini sequential; OpenAI-compatible providers use at most three workers.
-    max_workers = 1 if PROVIDER == "gemini" else min(3, len(students))
+    # Keep Gemini sequential and serialize Groq to stay within its token-per-minute limits.
+    max_workers = 1 if PROVIDER in {"gemini", "groq"} else min(3, len(students))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
