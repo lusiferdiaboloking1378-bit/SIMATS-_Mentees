@@ -9,6 +9,23 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @keyframes ai-batch-reveal {
+            from {
+                opacity: 0;
+                transform: translateY(18px) scale(0.985);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .ai-batch-card {
+            animation: ai-batch-reveal 550ms cubic-bezier(.22, 1, .36, 1) both;
+        }
+    </style>
 </head>
 
 <body class="bg-[#0a0c10]">
@@ -510,8 +527,16 @@
                         <div
                             class="inline-block w-12 h-12 rounded-full border-4 border-violet-500/30 border-t-violet-400 animate-spin mb-4">
                         </div>
-                        <p class="text-white font-bold text-lg" id="ai-loading-text">Generating comments with AI...</p>
-                        <p class="text-gray-500 text-sm mt-1">This may take up to 60 seconds for a large class</p>
+                        <p class="text-white font-bold text-lg" id="ai-loading-text">Analyzing batch 1: 3 students...</p>
+                        <p class="text-gray-300 text-sm mt-2" id="ai-progress-count">0 of 0 ready</p>
+                        <div class="w-full max-w-xl mx-auto h-2 rounded-full bg-white/10 mt-3 overflow-hidden"
+                            role="progressbar" aria-label="Comment generation progress" aria-valuemin="0"
+                            aria-valuemax="100" aria-valuenow="0" id="ai-progress-bar">
+                            <div id="ai-progress-fill"
+                                class="h-full rounded-full bg-violet-500 transition-all duration-500" style="width:0%">
+                            </div>
+                        </div>
+                        <p class="text-gray-500 text-sm mt-3">Comments appear in batches of 3 for easier review</p>
                     </div>
                 </div>
 
@@ -606,7 +631,9 @@
 
             if (state === 'loading') {
                 document.getElementById('ai-loading').classList.remove('hidden');
-                document.getElementById('ai-loading-text').textContent = msg || 'Generating comments with AI...';
+                if (msg) {
+                    document.getElementById('ai-loading-text').textContent = msg;
+                }
                 document.getElementById('ai-generate-btn').disabled = true;
             } else if (state === 'preview') {
                 document.getElementById('ai-preview-area').classList.remove('hidden');
@@ -615,16 +642,28 @@
                 el.textContent = msg || 'An error occurred.';
                 el.classList.remove('hidden');
             }
+            if (_aiResults.length && state !== 'idle') {
+                document.getElementById('ai-preview-area').classList.remove('hidden');
+            }
+        }
+
+        function updateAiProgress(completed, total) {
+            const percent = total ? Math.round(completed / total * 100) : 0;
+            document.getElementById('ai-progress-count').textContent = completed === 0
+                ? `0 of ${total} ready`
+                : `${completed} of ${total} comments ready`;
+            document.getElementById('ai-progress-fill').style.width = `${percent}%`;
+            document.getElementById('ai-progress-bar').setAttribute('aria-valuenow', String(percent));
         }
 
         function renderCards(results) {
-            _aiResults = results;
+            const startIndex = _aiResults.length;
+            _aiResults.push(...results);
             const container = document.getElementById('ai-cards-container');
-            container.innerHTML = '';
+            renderAiSummary(_aiResults);
 
-            renderAiSummary(results);
-
-            results.forEach((r, idx) => {
+            results.forEach((r, batchIndex) => {
+                const idx = startIndex + batchIndex;
                 const corrections = r.corrections || [];
                 const corrHtml = corrections.length
                     ? `<div class="mt-3">
@@ -651,13 +690,11 @@
                 const aiStatus = r.ai_generated
                     ? `<span id="ai-status-${idx}" class="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">AI generated</span>`
                     : `<span id="ai-status-${idx}" class="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold">Template fallback</span>`;
-                const aiWarning = !r.ai_generated && r.ai_warning
-                    ? escHtml(r.ai_warning)
-                    : '';
 
                 const card = document.createElement('div');
                 card.id = `ai-card-${idx}`;
-                card.className = 'glass rounded-2xl border border-white/10 p-5';
+                card.className = 'ai-batch-card glass rounded-2xl border border-white/10 p-5';
+                card.style.animationDelay = `${batchIndex * 110}ms`;
                 card.innerHTML = `
                     <div class="flex items-start justify-between gap-4 mb-3">
                         <div>
@@ -667,7 +704,6 @@
                                 ${lowBadge} ${evBadge}
                                 ${aiStatus}
                             </div>
-                            <p id="ai-warning-${idx}" class="text-amber-300 text-xs mt-2 ${aiWarning ? '' : 'hidden'}">${aiWarning}</p>
                             ${corrHtml}
                         </div>
                         <button onclick="regenerateOne('${escHtml(r.reg_no)}', ${idx})"
@@ -738,13 +774,16 @@
         }
 
         async function generateCommentReport() {
-            setAiUiState('loading', 'Generating AI comments for all students...');
             const regNos = studentsData
                 .map(student => String(student.reg_num || '').trim())
                 .filter(Boolean);
-            const batchSize = 1;
-            const studentPauseMs = 5000;
-            const results = [];
+            const batchSize = 3;
+            const batchPauseMs = 2200;
+            _aiResults = [];
+            document.getElementById('ai-cards-container').replaceChildren();
+            document.getElementById('ai-summary-text').textContent = '';
+            updateAiProgress(0, regNos.length);
+            setAiUiState('loading');
 
             try {
                 if (!regNos.length) {
@@ -753,8 +792,9 @@
 
                 for (let start = 0; start < regNos.length; start += batchSize) {
                     const batch = regNos.slice(start, start + batchSize);
+                    const batchNumber = Math.floor(start / batchSize) + 1;
                     document.getElementById('ai-loading-text').textContent =
-                        `Generating comment for student ${start + 1} of ${regNos.length}...`;
+                        `Analyzing batch ${batchNumber}: ${batch.length} student${batch.length === 1 ? '' : 's'}...`;
                     const res = await fetch('/generate_comment_report', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -764,29 +804,29 @@
                         const err = await res.json().catch(() => ({}));
                         throw new Error(err.error || `Server error ${res.status}`);
                     }
-                    results.push(...await res.json());
-
+                    const batchResults = await res.json();
+                    if (!Array.isArray(batchResults) || batchResults.length !== batch.length) {
+                        throw new Error(`Batch ${batchNumber} could not be returned completely.`);
+                    }
+                    renderCards(batchResults);
+                    updateAiProgress(_aiResults.length, regNos.length);
                     if (start + batchSize < regNos.length) {
                         document.getElementById('ai-loading-text').textContent =
-                            `Student ${start + 1} complete. Waiting 5 seconds before the next student...`;
-                        await new Promise(resolve => window.setTimeout(resolve, studentPauseMs));
+                            `Batch ${batchNumber} ready; preparing the next batch...`;
+                    }
+                    setAiUiState('loading');
+
+                    if (start + batchSize < regNos.length) {
+                        await new Promise(resolve => window.setTimeout(resolve, batchPauseMs));
                     }
                 }
-
-                results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                renderCards(results);
                 setAiUiState('preview');
             } catch (e) {
-                if (results.length) {
-                    results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                    renderCards(results);
-                    setAiUiState('preview');
-                    const error = document.getElementById('ai-error');
-                    error.textContent = `Generated ${results.length} of ${regNos.length} comments. Failed to generate the rest: ${e.message}`;
-                    error.classList.remove('hidden');
-                } else {
-                    setAiUiState('error', 'Failed to generate report: ' + e.message);
-                }
+                const nextBatch = Math.floor(_aiResults.length / batchSize) + 1;
+                setAiUiState(
+                    'error',
+                    `Generation stopped at batch ${nextBatch}. ${_aiResults.length} of ${regNos.length} comments are ready. ${e.message}`
+                );
             }
         }
 
@@ -814,11 +854,6 @@
                         status.className = updated.ai_generated
                             ? 'text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold'
                             : 'text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold';
-                    }
-                    const warning = document.getElementById(`ai-warning-${idx}`);
-                    if (warning) {
-                        warning.textContent = updated.ai_warning || '';
-                        warning.classList.toggle('hidden', Boolean(updated.ai_generated || !updated.ai_warning));
                     }
                     renderAiSummary(_aiResults);
                 }

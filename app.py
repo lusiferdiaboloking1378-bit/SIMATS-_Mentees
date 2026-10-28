@@ -6,6 +6,7 @@ import json
 import re
 import io
 import time
+import hashlib
 import urllib.request
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -974,13 +975,15 @@ def correct_student_text(text):
 
 
 
-def _build_ai_payload(student, show_grades=False):
+def _build_ai_payload(student, show_grades=False, faculty_context=None):
     """
     Compute facts in pure Python for one student.
     show_grades must be passed from the main thread (not queried here)
     to avoid SQLAlchemy thread-safety issues.
+    faculty_context is copied in the main thread before worker threads run.
     Returns (payload_dict, corrections_list)
     """
+    faculty_context = faculty_context or {}
     att_data = student.get_attendance()
     marks_data = student.get_marks()
     corrections = []
@@ -1005,6 +1008,7 @@ def _build_ai_payload(student, show_grades=False):
     low_subjects = []      # below 80%
     borderline_subjects = []  # exactly 80%
     good_count = 0
+    attendance_subjects = []
 
     for slot, att_val in att_data.items():
         try:
@@ -1014,6 +1018,10 @@ def _build_ai_payload(student, show_grades=False):
 
         # Get subject/course name for this slot from marks_data
         subject_name = marks_data.get(slot, {}).get('course', '') or slot
+        attendance_subjects.append({
+            'subject': subject_name,
+            'percent': att_pct,
+        })
 
         if att_pct < 80:
             low_subjects.append({'subject': subject_name, 'percent': att_pct})
@@ -1029,17 +1037,29 @@ def _build_ai_payload(student, show_grades=False):
     female_endings = ('a', 'i', 'ee', 'ya', 'na', 'ra', 'la', 'ita', 'ika', 'ika', 'eeka')
     gender = 'female' if any(lower_name.endswith(e) for e in female_endings) else 'male'
 
+    individual_advisory = (
+        faculty_context.get('individual_advisory')
+        or faculty_context.get('custom_advisory')
+        or ''
+    ).strip()
+    global_advisory = (faculty_context.get('global_advisory') or '').strip()
+    existing_advisory = (faculty_context.get('faculty_advisory') or '').strip()
+    faculty_advisory = individual_advisory or existing_advisory or global_advisory
+
     payload = {
         'reg_no': student.reg_num,
         'name': name,
         'gender': gender,
+        'attendance': attendance_subjects,
         'low_subjects': low_subjects,
         'borderline_subjects': borderline_subjects,
         'other_slots_good': other_slots_good,
         'event': event,
         'online_course': online_course,
         'student_remark': remark,
-        'institution': 'SIMATS Engineering',
+        'faculty_advisory': faculty_advisory,
+        'faculty_observation': (faculty_context.get('faculty_observation') or '').strip(),
+        'institution': faculty_context.get('institution') or 'SIMATS Engineering',
     }
 
     # Include grades only when the flag is explicitly passed as True
@@ -1055,7 +1075,13 @@ def _call_model(payload):
     Builds the prompt (including grades & remark) and returns the comment.
     """
     # ---- Build extra instructions ------------------------------------------------
-    extra_parts = []
+    extra_parts = [
+        "Use the supplied attendance, subject names, percentages, event, online course, and grades only as stated.",
+        "Acknowledge any student remark sensitively without copying it verbatim.",
+        "Reflect the faculty advisory naturally; use the faculty global observation only as relevant guidance.",
+        "Never invent grades, events, subjects, percentages, courses, or personal circumstances.",
+        "Do not present private student remarks or faculty notices as unrelated invented facts.",
+    ]
     if payload.get('grades'):
         grades_txt = ', '.join(f"{g['subject']} ({g['grade']})" for g in payload['grades'])
         extra_parts.append(
@@ -1065,8 +1091,17 @@ def _call_model(payload):
     if remark:
         extra_parts.append(
             f"The student has shared this personal remark/reason (e.g. for low attendance): '{remark}'. "
-            f"Acknowledge it briefly and sensitively in the comment — do NOT copy it word for word, "
-            f"just mention that the student has explained the situation and encourage them going forward."
+            "Acknowledge it briefly and sensitively, but do not quote or repeat it verbatim."
+        )
+    if payload.get('faculty_advisory'):
+        extra_parts.append(
+            "Reflect this applicable faculty advisory naturally and only as an advisory: "
+            f"'{payload['faculty_advisory']}'."
+        )
+    if payload.get('faculty_observation'):
+        extra_parts.append(
+            "Use this global faculty observation only where it is relevant guidance, not as a student-specific fact: "
+            f"'{payload['faculty_observation']}'."
         )
     extra = ("\n" + " ".join(extra_parts)) if extra_parts else ""
     prompt = f"Input: {json.dumps(payload, ensure_ascii=False)}{extra}"
@@ -1080,11 +1115,12 @@ def _call_model(payload):
         raw = response.text.strip()
     elif PROVIDER in {"openai", "groq"}:
         system_msg = (
-            "You are a college mentor personally writing a short comment about one student for the semester mentor report. "
-            "Follow this reference style: start with the student's name; state attendance accurately with subject names "
-            "and percentages; recognize subjects with stronger attendance when relevant; describe any recorded event "
-            "participation accurately; mention online-course status when provided; and end with specific, warm "
-            "encouragement. Write one natural, personal paragraph of about 90 to 150 words.\n"
+            "You are a college mentor writing one individualized comment for a semester mentor report. "
+            "Use the student's full name. Build the emphasis around this student's unique combination of attendance, "
+            "student remark, faculty advisory, faculty global observation, event, online course, and grades when supplied. "
+            "Give the paragraph a visibly individualized structure: vary the opening and transitions where appropriate, "
+            "avoid reusing a stock template phrase, and finish with encouragement personalized to the supplied facts. "
+            "Write one natural paragraph of approximately 90 to 150 words.\n"
             "Rules:\n"
             "1. Mention low attendance only for subjects below 80%, with exact subject names and percentages. "
             "If multiple subjects are low, identify each and recommend attending upcoming classes. Do not claim "
@@ -1095,19 +1131,29 @@ def _call_model(payload):
             "supplied, say no event participation was recorded and encourage a suitable future opportunity.\n"
             "4. Mention online-course participation only when the supplied facts support it; if blank, say no course "
             "was recorded and encourage one where appropriate.\n"
-            "5. Weave provided grades naturally. Use only the supplied facts; do not invent subjects, percentages, "
-            "achievements, course enrollment, or personal circumstances. Do not repeat private remarks verbatim.\n"
-            "6. Use a sincere mentor voice, vary sentence structure, and close with encouragement. Output no headings, "
-            "bullets, or quotation marks. Silently correct spelling and grammar.\n"
+            "5. Acknowledge the student remark sensitively without copying it verbatim. Reflect the faculty advisory "
+            "naturally, and use the faculty global observation only as relevant guidance.\n"
+            "6. Weave provided grades naturally. Never invent grades, events, subjects, percentages, courses, "
+            "achievements, or personal circumstances. Do not present private student remarks or faculty notices "
+            "as unrelated invented facts.\n"
+            "7. Use a sincere mentor voice, vary sentence structure, and close with specific encouragement. "
+            "Output no headings, bullets, or quotation marks. Silently correct spelling and grammar.\n"
             "Return ONLY a JSON object: {\"reg_no\": \"...\", \"comment\": \"...\"}"
         )
+        generation_options = {'temperature': 0.7}
+        if PROVIDER == "groq":
+            generation_options.update({
+                'temperature': 0.85,
+                'presence_penalty': 0.35,
+                'frequency_penalty': 0.25,
+            })
         resp = _chat_client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.7,
+            **generation_options,
         )
         raw = resp.choices[0].message.content.strip()
     else:
@@ -1117,74 +1163,162 @@ def _call_model(payload):
     raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.DOTALL)
     raw = re.sub(r'\s*```$', '', raw, flags=re.DOTALL)
 
-    # ---- Try to parse JSON; fall back to raw text if parsing fails -----------
     try:
         result = json.loads(raw)
-        return result.get('comment', '').strip()
-    except Exception:
-        return raw
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("The AI provider returned invalid JSON.") from exc
+    if (
+        not isinstance(result, dict)
+        or set(result) != {'reg_no', 'comment'}
+        or str(result.get('reg_no', '')).strip() != str(payload.get('reg_no', '')).strip()
+        or not isinstance(result.get('comment'), str)
+    ):
+        raise ValueError("The AI provider returned an invalid comment response.")
+    return result['comment'].strip()
 
 
 def fallback_comment(payload):
-    """Fixed template used when AI generation fails or is unavailable."""
-    name = payload.get('name', 'The student')
+    """Build a varied, deterministic comment from the supplied student facts."""
+    name = payload.get('name') or 'The student'
+    reg_no = str(payload.get('reg_no') or '')
     low = payload.get('low_subjects', [])
+    attendance = payload.get('attendance', [])
     event = payload.get('event', '')
     online = payload.get('online_course', '')
     remark = (payload.get('student_remark') or '').strip()
-    gender_pronoun = 'she' if payload.get('gender') == 'female' else 'he'
-    gender_pos = 'her' if payload.get('gender') == 'female' else 'his'
-    first = name.split()[0]
+    first = name.split()[0] if name.split() else 'there'
+    seed_facts = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    seed = hashlib.sha256(f"{reg_no}|{seed_facts}".encode('utf-8')).digest()
+
+    def choose(section, variants, **values):
+        offset = hashlib.sha256(seed + section.encode('utf-8')).digest()[0] % len(variants)
+        return variants[offset].format(**values)
+
+    def format_percent(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return str(int(number)) if number.is_integer() else f"{number:g}"
 
     if low:
-        att_str = ', '.join(f"{s['subject']} ({int(s['percent'])}%)" for s in low)
-        att_sentence = (f"{name} has recorded attendance below 80% in the following subject(s): "
-                        f"{att_str}. I encourage {first} to attend every upcoming class "
-                        f"to bring {gender_pos} attendance above 80%.")
+        low_details = ', '.join(
+            f"{subject.get('subject', '')} ({format_percent(subject.get('percent', ''))}%)"
+            for subject in low
+        )
+        att_sentence = choose('attendance-low', (
+            "{name}'s attendance needs attention, particularly attendance in {details}.",
+            "A point to strengthen for {name} is attendance in {details}.",
+            "{name} should focus on improving attendance, especially in {details}.",
+            "The attendance record for {name} calls for attention in {details}.",
+        ), name=name, details=low_details)
+        att_followup = choose('attendance-followup', (
+            "Regular attendance in the coming classes should help {first} improve this concern.",
+            "Attending each upcoming class can help {first} make steady progress in these subjects.",
+            "A consistent presence in future classes will give {first} a practical path to improve.",
+            "With regular attendance from this point forward, {first} can work toward stronger results.",
+        ), first=first)
+    elif attendance:
+        attendance_details = ', '.join(
+            f"{subject.get('subject', '')} ({format_percent(subject.get('percent', ''))}%)"
+            for subject in attendance
+        )
+        att_sentence = choose('attendance-regular', (
+            "{name} has regular attendance in the recorded subjects: {details}.",
+            "Attendance is regular for {name} across the supplied records: {details}.",
+            "The supplied attendance record for {name} shows no subject below 80%: {details}.",
+            "{name}'s attendance record shows steady participation in these subjects: {details}.",
+        ), name=name, details=attendance_details)
+        att_followup = ''
     else:
-        att_sentence = (f"{name} has maintained consistent attendance across all subjects, "
-                        f"which reflects {gender_pos} commitment and dedication.")
+        att_sentence = choose('attendance-missing', (
+            "No attendance percentages were supplied for {name} in this report.",
+            "This report does not include attendance percentages for {name}.",
+            "There are no attendance figures supplied here for {name}.",
+            "Attendance percentages are not available in the supplied report for {name}.",
+        ), name=name)
+        att_followup = ''
 
-    remark_sentence = ''
+    sentences = [att_sentence]
+    if att_followup:
+        sentences.append(att_followup)
     if remark:
-        remark_sentence = (f" I have noted {first}'s personal explanation regarding this, "
-                           f"and I appreciate {gender_pos} transparency. "
-                           f"I encourage {first} to manage {gender_pos} responsibilities proactively going forward.")
-
-    event_sentence = ''
+        sentences.append(choose('remark', (
+            "I have taken note of the personal remark you shared: {remark}.",
+            "Your personal note, {remark}, has been received and considered sensitively.",
+            "I appreciate you sharing this personal context: {remark}.",
+            "I have considered your remark, {remark}, with care.",
+        ), remark=remark))
+    advisory = (payload.get('faculty_advisory') or '').strip()
+    if advisory:
+        sentences.append(choose('advisory', (
+            "The applicable {institution} advisory is: {advisory}.",
+            "Please also keep in mind this faculty advisory from {institution}: {advisory}.",
+            "The faculty guidance for {institution} is: {advisory}.",
+            "In addition, the relevant {institution} advisory asks: {advisory}.",
+        ), institution=payload.get('institution') or 'the institution', advisory=advisory))
+    observation = (payload.get('faculty_observation') or '').strip()
+    if observation:
+        sentences.append(choose('observation', (
+            "As broader guidance, the mentor observation is: {observation}.",
+            "The faculty's general observation offers this guidance: {observation}.",
+            "The mentor's global observation is relevant as guidance: {observation}.",
+            "The following broader mentor observation may guide next steps: {observation}.",
+        ), observation=observation))
     if event:
-        event_sentence = f" {first} participated in {event}, which is highly appreciable."
+        sentences.append(choose('event', (
+            "{first}'s recorded event participation is {event}.",
+            "The report records {first}'s participation in {event}.",
+            "{first} has the following event participation on record: {event}.",
+            "Recorded event involvement for {first} includes {event}.",
+        ), first=first, event=event))
     else:
-        event_sentence = (f" I encourage {first} to participate in upcoming hackathons, "
-                          f"symposiums, or workshops to further develop {gender_pos} skills.")
-
-    course_sentence = ''
+        sentences.append(choose('future-event', (
+            "A future academic or technical event could offer {first} another opportunity to participate.",
+            "{first} is encouraged to consider a suitable upcoming event when one is available.",
+            "Taking part in a future event may give {first} a new way to engage with campus activities.",
+            "When an appropriate event is announced, {first} could consider joining it.",
+        ), first=first))
     if online:
-        course_sentence = (f" {first} is also pursuing an online course in {online}, "
-                           f"which shows {gender_pos} eagerness to learn beyond the classroom.")
-
-    # Include grades sentence when grades are in payload
-    grades_sentence = ''
+        sentences.append(choose('online-course', (
+            "The recorded online course is {course}.",
+            "{first} also has {course} listed as an online course.",
+            "The online course recorded for {first} is {course}.",
+            "{first}'s supplied online-course information lists {course}.",
+        ), first=first, course=online))
     if payload.get('grades'):
-        grades_list = ', '.join(f"{g['subject']} ({g['grade']})" for g in payload['grades'])
-        grades_sentence = f" {first} has achieved the following grades: {grades_list}."
-
-    closing = (f" Keep it up, {first}! "
-               f"I believe in {gender_pos} potential and look forward to seeing "
-               f"{gender_pronoun} achieve great success.")
-
-    return f"{att_sentence}{remark_sentence}{event_sentence}{course_sentence}{grades_sentence}{closing}".strip()
+        grades_list = ', '.join(
+            f"{grade.get('subject', '')} ({grade.get('grade', '')})"
+            for grade in payload['grades']
+        )
+        sentences.append(choose('grades', (
+            "The supplied grades are {grades}.",
+            "Grades recorded for {first} are {grades}.",
+            "The grade information provided for {first} lists {grades}.",
+            "The report includes these grades for {first}: {grades}.",
+        ), first=first, grades=grades_list))
+    sentences.append(choose('encouragement', (
+        "Keep building on these next steps, {first}; steady effort can support continued progress.",
+        "{first}, continue with a focused and consistent approach to the goals ahead.",
+        "I encourage {first} to keep moving forward with confidence and steady effort.",
+        "With continued commitment, {first} can make meaningful progress from here.",
+    ), first=first))
+    return ' '.join(sentence.strip() for sentence in sentences if sentence.strip())
 
 
 def _validate_ai_comment(comment, payload):
     if not comment:
         raise ValueError("The AI provider returned an empty comment.")
+    full_name = (payload.get('name') or '').strip()
+    if full_name and full_name.lower() not in comment.lower():
+        raise ValueError("Comment is missing the student's full name.")
     for subject in payload.get('low_subjects', []):
         name = subject.get('subject', '')
         percent = subject.get('percent', -1)
         if name and name.lower() not in comment.lower():
             raise ValueError(f"Comment missing subject: {name}")
-        if percent >= 0 and str(int(percent)) not in comment:
+        expected_percent = f"{percent:g}" if isinstance(percent, (float, int)) else str(percent)
+        if percent >= 0 and f"{expected_percent}%" not in comment:
             raise ValueError(f"Comment missing percentage for: {name}")
 
 
@@ -1198,58 +1332,41 @@ def _rate_limit_retry_delay(error):
     return float(match.group(1)) if match else None
 
 
-def _generate_for_one(student, show_grades=False):
+def _generate_for_one(student, show_grades=False, faculty_context=None):
     """Generate comment for a single student. Returns result dict."""
-    payload, corrections = _build_ai_payload(student, show_grades=show_grades)
+    payload, corrections = _build_ai_payload(
+        student,
+        show_grades=show_grades,
+        faculty_context=faculty_context,
+    )
 
     comment = None
     ai_generated = False
     ai_warning = None
     if AI_PROVIDER_AVAILABLE:
-        try:
-            comment = _call_model(payload)
-            _validate_ai_comment(comment, payload)
-            ai_generated = bool(comment)
-        except Exception as first_err:
-            print(f"[AI Report] First attempt failed for {student.reg_num}: {first_err}")
-            if _is_rate_limit_error(first_err):
-                retry_delay = _rate_limit_retry_delay(first_err)
-                if retry_delay is not None and retry_delay <= 5:
-                    time.sleep(retry_delay + 0.25)
-                    try:
-                        comment = _call_model(payload)
-                        _validate_ai_comment(comment, payload)
-                        ai_generated = bool(comment)
-                    except Exception as retry_err:
-                        print(f"[AI Report] Retry failed for {student.reg_num}: {retry_err}")
-                        comment = None
-                if not comment:
-                    ai_warning = (
-                        f"{PROVIDER.title()}'s request limit was reached; a template comment was used. "
-                        "Wait for the quota window to reset, then try again."
-                    )
-            else:
-                # Retry once for errors other than provider quota limits.
-                try:
-                    comment = _call_model(payload)
-                    _validate_ai_comment(comment, payload)
-                    ai_generated = bool(comment)
-                except Exception as retry_err:
-                    print(f"[AI Report] Retry failed for {student.reg_num}: {retry_err}")
-                    comment = None
-                    if _is_rate_limit_error(retry_err):
-                        ai_warning = (
-                            f"{PROVIDER.title()}'s request limit was reached; a template comment was used. "
-                            "Wait for the quota window to reset, then try again."
-                        )
-                    else:
-                        ai_warning = "AI generation failed; a template comment was used. Check the server logs and API configuration."
+        for attempt in range(2):
+            try:
+                if attempt and first_error and _is_rate_limit_error(first_error):
+                    retry_delay = _rate_limit_retry_delay(first_error)
+                    if retry_delay is not None and retry_delay <= 5:
+                        time.sleep(retry_delay + 0.25)
+                comment = _call_model(payload)
+                _validate_ai_comment(comment, payload)
+                ai_generated = True
+                break
+            except Exception as error:
+                if attempt == 0:
+                    first_error = error
+                    print(f"[AI Report] First attempt failed for {student.reg_num}: {error}")
+                else:
+                    print(f"[AI Report] Retry failed for {student.reg_num}: {error}")
+                    ai_warning = "AI generation failed after retry."
     else:
         ai_warning = f"{PROVIDER} is unavailable. Check the configured API key and server dependencies."
 
     if not comment:
         if not ai_warning:
-            ai_warning = "AI returned no comment; a template comment was used. Check the server logs and API configuration."
+            ai_warning = "AI returned no valid comment after retry."
         comment = fallback_comment(payload)
         ai_generated = False
 
@@ -1287,20 +1404,40 @@ def generate_comment_report():
     if not students:
         return jsonify({'error': 'No students found'}), 404
 
-    # Read the grades toggle ONCE in the main thread (SQLAlchemy is not thread-safe)
+    # Read all report context in the main thread before worker threads run.
     try:
         settings = GlobalSettings.query.first()
         show_grades = bool(settings and settings.show_grades_in_ppt)
     except Exception:
         show_grades = False
 
+    global_advisory_record = GlobalAdvisory.query.first()
+    global_observation_record = GlobalMentorObservation.query.first()
+    global_advisory = global_advisory_record.content if global_advisory_record else ''
+    global_observation = global_observation_record.content if global_observation_record else ''
+    faculty_contexts = {
+        student.reg_num: {
+            'individual_advisory': (student.custom_advisory or '').strip(),
+            'global_advisory': global_advisory,
+            'faculty_observation': global_observation,
+            'institution': 'SIMATS Engineering',
+        }
+        for student in students
+    }
+
     results = []
-    # Keep Gemini calls sequential; OpenAI-compatible providers can use a small parallel batch.
-    BATCH = 5
-    # Serialize Gemini requests to avoid exceeding low free-tier per-minute quotas.
-    max_workers = 1 if PROVIDER == "gemini" else BATCH
+    # Keep Gemini sequential; OpenAI-compatible providers use at most three workers.
+    max_workers = 1 if PROVIDER == "gemini" else min(3, len(students))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_generate_for_one, s, show_grades): s for s in students}
+        futures = {
+            executor.submit(
+                _generate_for_one,
+                student,
+                show_grades,
+                faculty_contexts[student.reg_num],
+            ): student
+            for student in students
+        }
         for future in as_completed(futures):
             try:
                 results.append(future.result())
@@ -1308,7 +1445,11 @@ def generate_comment_report():
                 s = futures[future]
                 print(f"[AI Report] Exception for {s.reg_num}: {e}")
                 # Fallback even on executor crash
-                payload, corrections = _build_ai_payload(s, show_grades=show_grades)
+                payload, corrections = _build_ai_payload(
+                    s,
+                    show_grades=show_grades,
+                    faculty_context=faculty_contexts[s.reg_num],
+                )
                 results.append({
                     'reg_no': s.reg_num,
                     'name': payload['name'],
