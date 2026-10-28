@@ -110,7 +110,7 @@ elif PROVIDER in {"openai", "groq"}:
                 client_options["base_url"] = "https://api.groq.com/openai/v1"
             _chat_client = openai.OpenAI(
                 **client_options,
-                timeout=20.0,
+                timeout=12.0,
                 max_retries=0,
             )
             AI_PROVIDER_AVAILABLE = True
@@ -1384,7 +1384,7 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
                         retry_delay = _rate_limit_retry_delay(first_error)
                         if retry_delay is None:
                             retry_delay = 2
-                        if retry_delay > 30:
+                        if retry_delay > 8:
                             print(
                                 f"[AI Report] Retry delay for {student.reg_num} exceeds "
                                 "the request budget; using fallback."
