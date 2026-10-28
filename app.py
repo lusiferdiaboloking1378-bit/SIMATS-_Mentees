@@ -85,6 +85,7 @@ _groq_generation_lock = threading.Lock()
 _ai_comment_registry_lock = threading.Lock()
 _recent_ai_comments = []
 _GROQ_MIN_REQUEST_INTERVAL_SECONDS = 5.5
+_AI_STUDENT_TIMEOUT_SECONDS = 20.0
 _groq_last_request_at = None
 
 if PROVIDER == "gemini":
@@ -1083,7 +1084,7 @@ def _normalise_ai_comment(comment):
     return re.sub(r'[^a-z0-9]+', ' ', comment.lower()).strip()
 
 
-def _call_model(payload, avoid_comments=None):
+def _call_model(payload, avoid_comments=None, timeout=None):
     """Unified LLM call – works with Gemini, OpenAI, or Groq.
     Builds the prompt (including grades & remark) and returns the comment.
     """
@@ -1131,7 +1132,7 @@ def _call_model(payload, avoid_comments=None):
     if PROVIDER == "gemini":
         response = _gemini_model.generate_content(
             prompt,
-            request_options={"timeout": 20},
+            request_options={"timeout": timeout or _AI_STUDENT_TIMEOUT_SECONDS},
         )
         raw = response.text.strip()
     elif PROVIDER in {"openai", "groq"}:
@@ -1180,6 +1181,7 @@ def _call_model(payload, avoid_comments=None):
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": prompt},
             ],
+            timeout=timeout or _AI_STUDENT_TIMEOUT_SECONDS,
             **generation_options,
         )
         raw = resp.choices[0].message.content.strip()
@@ -1370,15 +1372,20 @@ def _rate_limit_retry_delay(error):
     return float(match.group(1)) if match else None
 
 
-def _wait_for_groq_request_slot():
+def _wait_for_groq_request_slot(deadline):
     """Space Groq request starts to keep token use within the observed TPM budget."""
     global _groq_last_request_at
     now = time.monotonic()
     if _groq_last_request_at is not None:
         remaining = _GROQ_MIN_REQUEST_INTERVAL_SECONDS - (now - _groq_last_request_at)
         if remaining > 0:
+            if remaining >= deadline - now:
+                return False
             time.sleep(remaining)
+    if time.monotonic() >= deadline:
+        return False
     _groq_last_request_at = time.monotonic()
+    return True
 
 
 def _get_recent_ai_comments():
@@ -1405,27 +1412,43 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
     ai_generated = False
     ai_warning = None
     first_error = None
+    deadline = time.monotonic() + _AI_STUDENT_TIMEOUT_SECONDS
     if AI_PROVIDER_AVAILABLE:
         def generate_with_retry():
             nonlocal ai_generated, ai_warning, comment, first_error
 
             for attempt in range(2):
                 try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        ai_warning = "AI generation exceeded the 20-second limit."
+                        break
                     if attempt and first_error and _is_rate_limit_error(first_error):
                         retry_delay = _rate_limit_retry_delay(first_error)
                         if retry_delay is None:
                             retry_delay = 2
-                        if retry_delay > 8:
-                            print(
-                                f"[AI Report] Retry delay for {student.reg_num} exceeds "
-                                "the request budget; using fallback."
-                            )
-                            ai_warning = "Groq rate limit retry delay exceeded the request budget."
+                        remaining = deadline - time.monotonic()
+                        if retry_delay + 0.25 >= remaining:
+                            ai_warning = "AI generation exceeded the 20-second limit."
                             break
                         time.sleep(retry_delay + 0.25)
                     if PROVIDER == "groq":
-                        _wait_for_groq_request_slot()
-                    comment = _call_model(payload, avoid_comments=_get_recent_ai_comments())
+                        if not _wait_for_groq_request_slot(deadline):
+                            ai_warning = "AI generation exceeded the 20-second limit."
+                            break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        ai_warning = "AI generation exceeded the 20-second limit."
+                        break
+                    comment = _call_model(
+                        payload,
+                        avoid_comments=_get_recent_ai_comments(),
+                        timeout=remaining,
+                    )
+                    if time.monotonic() >= deadline:
+                        comment = None
+                        ai_warning = "AI generation exceeded the 20-second limit."
+                        break
                     _validate_ai_comment(comment, payload, _get_recent_ai_comments())
                     _register_ai_comment(comment)
                     ai_generated = True
@@ -1441,8 +1464,15 @@ def _generate_for_one(student, show_grades=False, faculty_context=None):
 
         if PROVIDER == "groq":
             # Serialize Groq requests across report requests in this app process.
-            with _groq_generation_lock:
-                generate_with_retry()
+            lock_wait = max(0, deadline - time.monotonic())
+            acquired = _groq_generation_lock.acquire(timeout=lock_wait)
+            if acquired:
+                try:
+                    generate_with_retry()
+                finally:
+                    _groq_generation_lock.release()
+            else:
+                ai_warning = "AI generation exceeded the 20-second limit."
         else:
             generate_with_retry()
     else:
