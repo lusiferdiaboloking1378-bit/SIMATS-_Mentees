@@ -527,7 +527,7 @@
                         <div
                             class="inline-block w-12 h-12 rounded-full border-4 border-violet-500/30 border-t-violet-400 animate-spin mb-4">
                         </div>
-                        <p class="text-white font-bold text-lg" id="ai-loading-text">Analyzing batch 1: 3 students...</p>
+                        <p class="text-white font-bold text-lg" id="ai-loading-text">Analyzing student 1 of 0...</p>
                         <p class="text-gray-300 text-sm mt-2" id="ai-progress-count">0 of 0 ready</p>
                         <div class="w-full max-w-xl mx-auto h-2 rounded-full bg-white/10 mt-3 overflow-hidden"
                             role="progressbar" aria-label="Comment generation progress" aria-valuemin="0"
@@ -536,7 +536,7 @@
                                 class="h-full rounded-full bg-violet-500 transition-all duration-500" style="width:0%">
                             </div>
                         </div>
-                        <p class="text-gray-500 text-sm mt-3">Comments appear in batches of 3; Groq requests are spaced to reduce rate limits</p>
+                        <p class="text-gray-500 text-sm mt-3">Comments appear one student at a time; requests are spaced to reduce timeouts and rate limits</p>
                     </div>
                 </div>
 
@@ -777,8 +777,8 @@
             const regNos = studentsData
                 .map(student => String(student.reg_num || '').trim())
                 .filter(Boolean);
-            const batchSize = 3;
-            const batchPauseMs = 2200;
+            const batchSize = 1;
+            const studentPauseMs = 5500;
             _aiResults = [];
             document.getElementById('ai-cards-container').replaceChildren();
             document.getElementById('ai-summary-text').textContent = '';
@@ -791,41 +791,40 @@
                 }
 
                 for (let start = 0; start < regNos.length; start += batchSize) {
-                    const batch = regNos.slice(start, start + batchSize);
-                    const batchNumber = Math.floor(start / batchSize) + 1;
+                    const studentRegNo = regNos[start];
                     document.getElementById('ai-loading-text').textContent =
-                        `Analyzing batch ${batchNumber}: ${batch.length} student${batch.length === 1 ? '' : 's'}...`;
+                        `Analyzing student ${start + 1} of ${regNos.length}...`;
                     const res = await fetch('/generate_comment_report', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ reg_nos: batch })
+                        body: JSON.stringify({ reg_nos: [studentRegNo] })
                     });
                     if (!res.ok) {
                         const err = await res.json().catch(() => ({}));
                         throw new Error(err.error || `Server error ${res.status}`);
                     }
                     const batchResults = await res.json();
-                    if (!Array.isArray(batchResults) || batchResults.length !== batch.length) {
-                        throw new Error(`Batch ${batchNumber} could not be returned completely.`);
+                    if (!Array.isArray(batchResults) || batchResults.length !== 1) {
+                        throw new Error(`Student ${start + 1} could not be returned.`);
                     }
                     renderCards(batchResults);
                     updateAiProgress(_aiResults.length, regNos.length);
                     if (start + batchSize < regNos.length) {
                         document.getElementById('ai-loading-text').textContent =
-                            `Batch ${batchNumber} ready; preparing the next batch...`;
+                            `Student ${start + 1} ready; preparing student ${start + 2}...`;
                     }
                     setAiUiState('loading');
 
                     if (start + batchSize < regNos.length) {
-                        await new Promise(resolve => window.setTimeout(resolve, batchPauseMs));
+                        await new Promise(resolve => window.setTimeout(resolve, studentPauseMs));
                     }
                 }
                 setAiUiState('preview');
             } catch (e) {
-                const nextBatch = Math.floor(_aiResults.length / batchSize) + 1;
+                const nextStudent = _aiResults.length + 1;
                 setAiUiState(
                     'error',
-                    `Generation stopped at batch ${nextBatch}. ${_aiResults.length} of ${regNos.length} comments are ready. ${e.message}`
+                    `Generation stopped at student ${nextStudent}. ${_aiResults.length} of ${regNos.length} comments are ready. ${e.message}`
                 );
             }
         }

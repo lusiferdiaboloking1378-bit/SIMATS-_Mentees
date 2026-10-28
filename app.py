@@ -82,7 +82,7 @@ AI_PROVIDER_AVAILABLE = False
 _gemini_model = None
 _chat_client = None
 _groq_generation_lock = threading.Lock()
-_GROQ_MIN_REQUEST_INTERVAL_SECONDS = 12
+_GROQ_MIN_REQUEST_INTERVAL_SECONDS = 5.5
 _groq_last_request_at = None
 
 if PROVIDER == "gemini":
